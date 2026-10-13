@@ -205,7 +205,7 @@ export function renderClients(state) {
     const room = state.roomDrafts.has(client.id) ? state.roomDrafts.get(client.id) : client.room || '';
     updateRoomOptions(f.room, state.rooms, 'Chọn Room…', room);
     f.room.setAttribute('aria-label', 'Gán hoặc chuyển Room cho ' + client.name);
-    f['access-draft'].hidden = !(client.status === 'approved' && f.room.value !== client.room);
+    f['access-draft'].hidden = !(client.status === 'approved' && f.room.value !== (client.room || ''));
     f.approve.setAttribute('aria-label', (client.status === 'approved' ? 'Lưu Room cho ' : 'Duyệt ') + client.name);
     f.reject.setAttribute('aria-label', 'Từ chối ' + client.name);
     const busy = state.busyClients.has(client.id);
