@@ -34,7 +34,8 @@ export class Store {
       ...(parsed.rooms ?? []),
       ...clients.map((x) => x.room).filter(Boolean)
     ])];
-    if (rooms.length === 0) rooms.push('Default');
+    // An explicitly saved empty list must remain empty after restart.
+    if (rooms.length === 0 && !Array.isArray(parsed.rooms)) rooms.push('Default');
     return { clients, jobs: parsed.jobs ?? [], rooms };
   }
 
@@ -117,6 +118,16 @@ export class Store {
     this.#save();
     this.audit('room_created', { room: name });
     return name;
+  }
+
+  deleteRoom(name) {
+    if (!this.data.rooms.includes(name)) return false;
+    // Never remove a Room while any client is assigned to it.
+    if (this.data.clients.some((client) => client.room === name)) throw new Error('ROOM_IN_USE');
+    this.data.rooms = this.data.rooms.filter((room) => room !== name);
+    this.#save();
+    this.audit('room_deleted', { room: name });
+    return true;
   }
 
   approveClient(id, room) {
