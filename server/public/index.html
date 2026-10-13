@@ -73,15 +73,24 @@
       </section>
 
       <section id="rooms-panel" class="panel rooms-panel" aria-labelledby="rooms-title">
-        <div class="section-heading"><div><h2 id="rooms-title">Room <span id="room-count" class="count-badge">0</span></h2><p>Tạo nhóm máy tính. Chỉ các máy cùng Room mới thấy máy in của nhau.</p></div>
-          <form id="room-form" class="room-form">
-            <label class="sr-only" for="new-room">Tên Room mới</label>
-            <input id="new-room" name="room" maxlength="80" placeholder="Tên Room mới…" autocomplete="off" required>
+        <div class="section-heading room-heading">
+          <div><span class="form-overline">KHÔNG GIAN CHIA SẺ</span><h2 id="rooms-title">Room <span id="room-count" class="count-badge">0</span></h2><p>Mỗi Room là một nhóm riêng. Các máy cùng Room có thể sử dụng máy in được chia sẻ trong nhóm.</p></div>
+        </div>
+        <div class="room-layout">
+          <div class="room-collection">
+            <div class="room-list-heading"><div><strong>Danh sách Room</strong><p>Chọn Room để lọc máy client trong nhóm.</p></div><svg class="icon" aria-hidden="true"><use href="/icons.svg#rooms"/></svg></div>
+            <div id="room-list" class="room-list" aria-label="Danh sách Room"></div>
+          </div>
+          <form id="room-form" class="room-form room-create">
+            <span class="form-overline">THIẾT LẬP</span>
+            <h3>Tạo Room mới</h3>
+            <p>Thêm nhóm trước khi cấp quyền cho các máy.</p>
+            <label for="new-room">Tên Room</label>
+            <input id="new-room" name="room" maxlength="80" placeholder="Ví dụ: Kế toán" autocomplete="off" required>
             <button id="room-submit" type="submit" class="button button-primary"><span aria-hidden="true">+</span>Tạo Room</button>
+            <p id="room-error" class="field-error" role="alert"></p>
           </form>
         </div>
-        <div id="room-list" class="room-list" aria-label="Danh sách Room"></div>
-        <p id="room-error" class="field-error" role="alert"></p>
       </section>
 
       <section id="clients-panel" class="panel" aria-labelledby="clients-title">
