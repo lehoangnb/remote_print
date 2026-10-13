@@ -137,6 +137,17 @@ app.post('/api/admin/rooms', adminAuth, (req, res) => {
   if (!room) return error(res, 400, 'ROOM_REQUIRED');
   return res.status(201).json({ name: store.createRoom(room) });
 });
+app.delete('/api/admin/rooms/:name', adminAuth, (req, res) => {
+  const room = req.params.name;
+  if (typeof room !== 'string' || !room.trim() || room !== room.trim() || room.length > 80)
+    return error(res, 400, 'ROOM_REQUIRED');
+  try {
+    return store.deleteRoom(room) ? res.json({ name: room }) : error(res, 404, 'ROOM_NOT_FOUND');
+  } catch (e) {
+    if (e.message === 'ROOM_IN_USE') return error(res, 409, e.message);
+    throw e;
+  }
+});
 app.post('/api/admin/clients/:id/approve', adminAuth, (req, res) => {
   const room = cleanText(req.body?.room, 80);
   if (room.length < 1) return error(res, 400, 'ROOM_REQUIRED');
