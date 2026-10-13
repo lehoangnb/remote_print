@@ -204,9 +204,14 @@ tbody tr:hover { background: #fafbfe; }
 .room-form input { min-width: 0; flex: 1; }
 .room-form .button { flex-shrink: 0; }
 .rooms-panel .room-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; padding: 0 20px 18px; }
-.rooms-panel .room-card { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; min-height: 58px; max-width: none; padding: 12px 14px; border: 1px solid #e2e8f2; border-radius: 9px; background: #fff; color: var(--ink); text-align: left; }
+.rooms-panel .room-card { display: flex; align-items: center; gap: 4px; min-width: 0; min-height: 58px; max-width: none; padding: 5px 7px 5px 12px; border: 1px solid #e2e8f2; border-radius: 9px; background: #fff; color: var(--ink); }
 .rooms-panel .room-card:hover { background: #f5f8ff; border-color: #a7b8ef; }
 .rooms-panel .room-card.selected { background: #f0f4ff; border-color: var(--blue); box-shadow: inset 0 0 0 1px var(--blue); }
+.room-card-select { display: flex; flex: 1; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; min-height: 46px; padding: 5px 4px; border: 0; background: transparent; color: inherit; text-align: left; }
+.room-delete { display: grid; flex-shrink: 0; place-items: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: #718096; }
+.room-delete .icon { width: 18px; height: 18px; }
+.room-delete:hover:not(:disabled) { background: #fff0ed; color: #b42318; }
+.room-delete:disabled { opacity: .45; }
 .room-name { min-width: 0; font-size: 15px; overflow-wrap: anywhere; }
 .room-card-count { flex-shrink: 0; color: #65748b; font-size: 13px; white-space: nowrap; }
 .room-empty { grid-column: 1 / -1; padding: 22px; text-align: center; border: 1px dashed #cdd7e8; border-radius: 9px; }
