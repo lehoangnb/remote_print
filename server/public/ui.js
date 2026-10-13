@@ -93,11 +93,19 @@ export function renderRooms(state) {
   if (signature !== roomCardsSignature) {
     const fragment = document.createDocumentFragment();
     for (const room of state.rooms) {
-      const card = node('button', 'room-card');
-      card.type = 'button';
-      card.dataset.filterRoom = room;
+      const card = node('div', 'room-card');
+      const select = node('button', 'room-card-select');
+      select.type = 'button';
+      select.dataset.filterRoom = room;
       const count = node('span', 'room-card-count', stats.get(room) + ' máy');
-      card.append(node('strong', 'room-name', room), count);
+      select.append(node('strong', 'room-name', room), count);
+      const remove = node('button', 'room-delete');
+      remove.type = 'button';
+      remove.dataset.deleteRoom = room;
+      remove.setAttribute('aria-label', 'Xóa Room ' + room);
+      remove.title = 'Xóa Room ' + room;
+      remove.innerHTML = '<svg class="icon" aria-hidden="true"><use href="/icons.svg#trash"/></svg>';
+      card.append(select, remove);
       fragment.append(card);
     }
     if (state.rooms.length === 0) {
@@ -112,6 +120,9 @@ export function renderRooms(state) {
     const selected = card.dataset.filterRoom === state.filters.room;
     card.classList.toggle('selected', selected);
     card.setAttribute('aria-pressed', String(selected));
+  }
+  for (const button of elements['room-list'].querySelectorAll('[data-delete-room]')) {
+    button.disabled = state.busyRooms.has(button.dataset.deleteRoom);
   }
   updateRoomOptions(elements['client-room-filter'], state.rooms, 'Tất cả Room', state.filters.room);
 }
