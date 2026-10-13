@@ -1,7 +1,7 @@
 export const elements = Object.fromEntries([
   'login', 'dashboard', 'login-form', 'login-error', 'username', 'password', 'login-submit',
-  'refresh', 'auto-refresh', 'logout', 'updated-at', 'summary', 'notice', 'notice-text', 'notice-dismiss',
-  'metric-clients', 'metric-online', 'metric-pending', 'metric-failed', 'nav-pending',
+  'refresh', 'auto-refresh', 'logout', 'updated-at', 'notice', 'notice-text', 'notice-dismiss',
+  'metric-clients', 'metric-online', 'metric-pending', 'metric-failed',
   'room-form', 'new-room', 'room-submit', 'room-list', 'room-error', 'room-count',
   'clients', 'client-count', 'clients-empty', 'client-result-count', 'client-search',
   'client-status-filter', 'client-room-filter', 'clear-filters', 'failed-metric',
@@ -79,45 +79,30 @@ export function renderOverview(state) {
   text(elements['metric-online'], clients.filter(client => isOnline(client)).length);
   text(elements['metric-pending'], pending);
   text(elements['metric-failed'], jobs.filter(job => job.status === 'failed').length);
-  text(elements['nav-pending'], pending);
-  elements['nav-pending'].hidden = pending === 0;
-  text(elements.summary, rooms.length + ' Room · ' + clients.length + ' máy');
   text(elements['room-count'], rooms.length);
   text(elements['client-count'], clients.length);
   text(elements['job-count'], jobs.length);
 }
 
 export function renderRooms(state) {
-  const stats = new Map(state.rooms.map(room => [room, { total: 0, approved: 0 }]));
+  const stats = new Map(state.rooms.map(room => [room, 0]));
   for (const client of state.clients) {
-    const entry = stats.get(client.room);
-    if (entry) {
-      entry.total++;
-      if (client.status === 'approved') entry.approved++;
-    }
+    if (stats.has(client.room)) stats.set(client.room, stats.get(client.room) + 1);
   }
-  const signature = JSON.stringify([...stats].map(([room, entry]) => [room, entry.total, entry.approved]));
+  const signature = JSON.stringify([...stats]);
   if (signature !== roomCardsSignature) {
     const fragment = document.createDocumentFragment();
     for (const room of state.rooms) {
-      const entry = stats.get(room);
       const card = node('button', 'room-card');
       card.type = 'button';
       card.dataset.filterRoom = room;
-      const icon = node('span', 'room-card-icon');
-      icon.innerHTML = '<svg class="icon" aria-hidden="true"><use href="/icons.svg#rooms"/></svg>';
-      const description = node('span', 'room-card-copy');
-      description.append(node('strong', '', room),
-        node('small', '', entry.total + ' máy · ' + entry.approved + ' đã duyệt'));
-      const count = node('span', 'room-card-count', String(entry.total));
-      count.setAttribute('aria-hidden', 'true');
-      card.append(icon, description, count);
+      const count = node('span', 'room-card-count', stats.get(room) + ' máy');
+      card.append(node('strong', 'room-name', room), count);
       fragment.append(card);
     }
     if (state.rooms.length === 0) {
       const empty = node('div', 'room-empty');
-      empty.append(node('strong', '', 'Chưa có Room nào'),
-        node('p', '', 'Tạo Room đầu tiên để bắt đầu phân nhóm và duyệt máy client.'));
+      empty.append(node('p', '', 'Chưa có Room. Tạo Room đầu tiên để bắt đầu.'));
       fragment.append(empty);
     }
     elements['room-list'].replaceChildren(fragment);
@@ -157,7 +142,7 @@ function renderPrinterList(view, printers) {
   const expanded = Boolean(cell.querySelector('details')?.open);
   cell.replaceChildren();
   if (printers.length === 0) {
-    cell.append(node('span', 'muted', 'Chỉ gửi lệnh in'));
+    cell.append(node('span', 'muted', 'Không chia sẻ'));
     return;
   }
   const list = node('ul', 'printer-list');
@@ -199,8 +184,9 @@ export function renderClients(state) {
     f['current-room'].title = client.room || 'Chưa gán Room';
     f['current-room'].classList.toggle('is-empty', !client.room);
     f['client-connection'].classList.toggle('online', online);
-    text(f['client-connection'], online ? 'Đang online' : 'Đang offline');
-    text(f['last-seen'], formatDate(client.lastSeenAt));
+    text(f['client-connection'], online ? 'Online' : 'Offline');
+    f['client-connection'].title = 'Kết nối gần nhất: ' + formatDate(client.lastSeenAt);
+    f['last-seen'].hidden = true;
     renderPrinterList(view, client.printers || []);
     const room = state.roomDrafts.has(client.id) ? state.roomDrafts.get(client.id) : client.room || '';
     updateRoomOptions(f.room, state.rooms, 'Chọn Room…', room);
@@ -220,8 +206,8 @@ export function renderClients(state) {
   const empty = elements['clients-empty'];
   empty.hidden = visible > 0;
   text(empty.querySelector('strong'), state.clients.length ? 'Không tìm thấy máy phù hợp' : 'Chưa có máy client');
-  text(empty.querySelector('p'), state.clients.length ? 'Thử đổi từ khóa hoặc bỏ bộ lọc để xem các máy khác.' : 'Mở Remote Print Client và kết nối tới server để đăng ký máy.');
-  text(elements['client-result-count'], 'Hiển thị ' + visible + ' / ' + state.clients.length + ' máy');
+  text(empty.querySelector('p'), state.clients.length ? 'Thử bỏ bộ lọc.' : 'Kết nối Remote Print Client để bắt đầu.');
+  text(elements['client-result-count'], visible + ' / ' + state.clients.length + ' máy');
 }
 
 export function renderJobs(state) {
@@ -247,8 +233,8 @@ export function renderJobs(state) {
   elements.jobs.replaceChildren(fragment);
   elements['jobs-empty'].hidden = jobs.length > 0;
   text(elements['jobs-empty'].querySelector('strong'), state.jobs.length ? 'Không có lệnh in ở trạng thái này' : 'Chưa có lệnh in');
-  text(elements['jobs-empty'].querySelector('p'), state.jobs.length ? 'Chọn trạng thái khác để xem thêm lệnh in.' : 'Lệnh in từ các client sẽ xuất hiện tại đây.');
-  text(elements['job-result-count'], 'Hiển thị ' + jobs.length + ' / ' + state.jobs.length + ' lệnh in');
+  text(elements['jobs-empty'].querySelector('p'), state.jobs.length ? 'Thử bộ lọc khác.' : '');
+  text(elements['job-result-count'], jobs.length + ' / ' + state.jobs.length + ' lệnh in');
 }
 
 export function render(state) {
