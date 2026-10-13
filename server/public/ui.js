@@ -85,23 +85,18 @@ export function renderOverview(state) {
 }
 
 export function renderRooms(state) {
-  const stats = new Map(state.rooms.map(room => [room, { total: 0, approved: 0 }]));
+  const stats = new Map(state.rooms.map(room => [room, 0]));
   for (const client of state.clients) {
-    const entry = stats.get(client.room);
-    if (entry) {
-      entry.total++;
-      if (client.status === 'approved') entry.approved++;
-    }
+    if (stats.has(client.room)) stats.set(client.room, stats.get(client.room) + 1);
   }
-  const signature = JSON.stringify([...stats].map(([room, entry]) => [room, entry.total, entry.approved]));
+  const signature = JSON.stringify([...stats]);
   if (signature !== roomCardsSignature) {
     const fragment = document.createDocumentFragment();
     for (const room of state.rooms) {
-      const entry = stats.get(room);
       const card = node('button', 'room-card');
       card.type = 'button';
       card.dataset.filterRoom = room;
-      const count = node('span', 'room-card-count', entry.total + ' máy');
+      const count = node('span', 'room-card-count', stats.get(room) + ' máy');
       card.append(node('strong', 'room-name', room), count);
       fragment.append(card);
     }
@@ -211,7 +206,7 @@ export function renderClients(state) {
   const empty = elements['clients-empty'];
   empty.hidden = visible > 0;
   text(empty.querySelector('strong'), state.clients.length ? 'Không tìm thấy máy phù hợp' : 'Chưa có máy client');
-  text(empty.querySelector('p'), state.clients.length ? 'Thử đổi từ khóa hoặc bỏ bộ lọc để xem các máy khác.' : 'Mở Remote Print Client và kết nối tới server để đăng ký máy.');
+  text(empty.querySelector('p'), state.clients.length ? 'Thử bỏ bộ lọc.' : 'Kết nối Remote Print Client để bắt đầu.');
   text(elements['client-result-count'], visible + ' / ' + state.clients.length + ' máy');
 }
 
@@ -238,7 +233,7 @@ export function renderJobs(state) {
   elements.jobs.replaceChildren(fragment);
   elements['jobs-empty'].hidden = jobs.length > 0;
   text(elements['jobs-empty'].querySelector('strong'), state.jobs.length ? 'Không có lệnh in ở trạng thái này' : 'Chưa có lệnh in');
-  text(elements['jobs-empty'].querySelector('p'), state.jobs.length ? 'Chọn trạng thái khác để xem thêm lệnh in.' : 'Lệnh in từ các client sẽ xuất hiện tại đây.');
+  text(elements['jobs-empty'].querySelector('p'), state.jobs.length ? 'Thử bộ lọc khác.' : '');
   text(elements['job-result-count'], jobs.length + ' / ' + state.jobs.length + ' lệnh in');
 }
 
