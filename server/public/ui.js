@@ -118,7 +118,7 @@ export function renderRooms(state) {
   }
   for (const card of elements['room-list'].querySelectorAll('[data-filter-room]')) {
     const selected = card.dataset.filterRoom === state.filters.room;
-    card.classList.toggle('selected', selected);
+    card.closest('.room-card').classList.toggle('selected', selected);
     card.setAttribute('aria-pressed', String(selected));
   }
   for (const button of elements['room-list'].querySelectorAll('[data-delete-room]')) {
