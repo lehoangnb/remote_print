@@ -4,7 +4,7 @@ const state = {
   token: sessionStorage.getItem('adminToken'),
   clients: [], jobs: [], rooms: [],
   filters: { search: '', status: 'all', room: '' }, jobFilter: 'all',
-  roomDrafts: new Map(), busyClients: new Set(), clientErrors: new Map(),
+  roomDrafts: new Map(), busyClients: new Set(), busyRooms: new Set(), clientErrors: new Map(),
   revision: 0
 };
 let loadPromise = null;
@@ -13,6 +13,8 @@ const errorMessages = {
   INVALID_CREDENTIALS: 'Tài khoản hoặc mật khẩu không đúng.',
   ADMIN_AUTH_FAILED: 'Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại.',
   ROOM_REQUIRED: 'Hãy nhập tên Room.',
+  ROOM_IN_USE: 'Room đang có máy. Chuyển máy sang Room khác trước khi xóa.',
+  ROOM_NOT_FOUND: 'Không tìm thấy Room. Hãy làm mới danh sách.',
   CLIENT_NOT_FOUND: 'Không tìm thấy máy client. Hãy làm mới danh sách.',
   SERVER_ERROR: 'Server gặp lỗi. Hãy thử lại hoặc kiểm tra nhật ký server.'
 };
@@ -68,7 +70,7 @@ function logout(message = '') {
   el['new-room'].value = '';
   el.refresh.disabled = false;
   el.dashboard.removeAttribute('aria-busy');
-  state.roomDrafts.clear(); state.busyClients.clear(); state.clientErrors.clear();
+  state.roomDrafts.clear(); state.busyClients.clear(); state.busyRooms.clear(); state.clientErrors.clear();
   showDashboard(false);
   el.notice.hidden = true;
   el.password.value = '';
@@ -213,9 +215,44 @@ el['clear-filters'].addEventListener('click', () => {
   el['client-search'].value = ''; el['client-status-filter'].value = 'all'; el['client-room-filter'].value = '';
   syncClientFilters();
 });
-el['room-list'].addEventListener('click', event => {
+el['room-list'].addEventListener('click', async event => {
+  const remove = event.target.closest('button[data-delete-room]');
+  if (remove && el['room-list'].contains(remove)) {
+    const room = remove.dataset.deleteRoom;
+    if (!state.rooms.includes(room) || state.busyRooms.has(room)) return;
+    const assigned = state.clients.filter(client => client.room === room).length;
+    if (assigned > 0) {
+      showNotice('Room ' + room + ' đang có ' + assigned + ' máy. Chuyển máy sang Room khác trước khi xóa.', true);
+      return;
+    }
+    if (!window.confirm('Xóa Room "' + room + '"?')) return;
+    const actionToken = state.token;
+    state.busyRooms.add(room);
+    renderRooms(state);
+    try {
+      await api('/api/admin/rooms/' + encodeURIComponent(room), { method: 'DELETE' });
+      if (state.token !== actionToken) return;
+      state.revision++;
+      state.rooms = state.rooms.filter(item => item !== room);
+      for (const [id, draft] of state.roomDrafts) {
+        if (draft === room) state.roomDrafts.delete(id);
+      }
+      if (state.filters.room === room) {
+        state.filters.room = '';
+        el['client-room-filter'].value = '';
+      }
+      render(state);
+      showNotice('Đã xóa Room ' + room + '.');
+    } catch (error) {
+      if (state.token === actionToken) showNotice(error.message, true);
+    } finally {
+      state.busyRooms.delete(room);
+      if (state.token) renderRooms(state);
+    }
+    return;
+  }
   const card = event.target.closest('button[data-filter-room]');
-  if (!card) return;
+  if (!card || !el['room-list'].contains(card)) return;
   el['client-room-filter'].value = card.dataset.filterRoom;
   syncClientFilters();
   document.getElementById('clients-panel').scrollIntoView({ block: 'start' });
