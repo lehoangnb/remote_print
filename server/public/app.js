@@ -96,8 +96,7 @@ function load() {
     if (token !== state.token || revision !== state.revision) return;
     state.clients = clients; state.jobs = jobs; state.rooms = rooms;
     render(state);
-    el['updated-at'].textContent = 'Cập nhật lúc ' + new Date().toLocaleTimeString('vi-VN') +
-      (el['auto-refresh'].checked ? ' · tự làm mới mỗi 15 giây' : ' · làm mới thủ công');
+    el['updated-at'].textContent = 'Cập nhật ' + new Date().toLocaleTimeString('vi-VN');
     el['updated-at'].parentElement.classList.remove('is-stale');
   })();
   const wrapped = operation.finally(() => {
@@ -190,7 +189,7 @@ el['room-form'].addEventListener('submit', async event => {
     state.rooms.sort((a, b) => a.localeCompare(b, 'vi'));
     if (el['new-room'].value.trim() === name) el['new-room'].value = '';
     render(state);
-    showNotice('Room ' + result.name + ' đã sẵn sàng. Chọn Room này để duyệt máy.');
+    showNotice('Đã tạo Room ' + result.name + '.');
     if (document.activeElement === el['room-submit'] || document.activeElement === el['new-room'])
       el['new-room'].focus();
   } catch (error) {
@@ -243,11 +242,6 @@ el.refresh.addEventListener('click', () => load().catch(reportLoadError));
 el['auto-refresh'].addEventListener('change', () => load().catch(reportLoadError));
 el.logout.addEventListener('click', () => logout());
 el['notice-dismiss'].addEventListener('click', () => { el.notice.hidden = true; });
-document.querySelector('.sidebar nav').addEventListener('click', event => {
-  const link = event.target.closest('a');
-  if (!link) return;
-  for (const item of document.querySelectorAll('.nav-item')) item.classList.toggle('active', item === link);
-});
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && state.token && el['auto-refresh'].checked)
     load().catch(reportLoadError);
