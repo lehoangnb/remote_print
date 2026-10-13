@@ -50,3 +50,8 @@ $RECYCLE.BIN/
 
 # ===== Tools binary lớn, tải riêng khi build =====
 client/**/Tools/SumatraPDF.exe
+
+# ===== TokenSave: chỉ commit .db + config, bỏ file transient SQLite =====
+.tokensave/*-shm
+.tokensave/*-wal
+.tokensave/*-journal
