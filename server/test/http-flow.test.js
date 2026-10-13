@@ -5,6 +5,7 @@ import { generateKeyPairSync, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { Store } from '../src/store.js';
 
 const port = 18443;
 const base = `http://127.0.0.1:${port}`;
@@ -79,12 +80,38 @@ test('approval, room isolation, printer sharing and job lifecycle', async () => 
     method: 'POST', headers: adminHeaders, body: JSON.stringify({ name: 'room-one' })
   });
   assert.equal(createdRoom.response.status, 201);
+
+  const tempName = 'Room test & QA';
+  const tempCreated = await json('/api/admin/rooms', {
+    method: 'POST', headers: adminHeaders, body: JSON.stringify({ name: tempName })
+  });
+  assert.equal(tempCreated.response.status, 201);
+  const tempPath = '/api/admin/rooms/' + encodeURIComponent(tempName);
+  const unauthorizedDelete = await json(tempPath, { method: 'DELETE' });
+  assert.equal(unauthorizedDelete.response.status, 401);
+  const deletedTemp = await json(tempPath, { method: 'DELETE', headers: adminHeaders });
+  assert.equal(deletedTemp.response.status, 200);
+  assert.deepEqual(deletedTemp.body, { name: tempName });
+  const missingTemp = await json(tempPath, { method: 'DELETE', headers: adminHeaders });
+  assert.equal(missingTemp.response.status, 404);
+  assert.equal(missingTemp.body.error, 'ROOM_NOT_FOUND');
+  const roomsAfterDelete = await json('/api/admin/rooms', { headers: adminHeaders });
+  assert.equal(roomsAfterDelete.body.includes(tempName), false);
+
   for (const [client, room] of [[a, 'room-one'], [b, 'room-one'], [c, 'room-two']]) {
     const approved = await json(`/api/admin/clients/${client.deviceId}/approve`, {
       method: 'POST', headers: adminHeaders, body: JSON.stringify({ room })
     });
     assert.equal(approved.response.status, 200);
   }
+
+  const deleteInUse = await json('/api/admin/rooms/room-one', {
+    method: 'DELETE', headers: adminHeaders
+  });
+  assert.equal(deleteInUse.response.status, 409);
+  assert.equal(deleteInUse.body.error, 'ROOM_IN_USE');
+  const roomsStillAssigned = await json('/api/admin/rooms', { headers: adminHeaders });
+  assert.equal(roomsStillAssigned.body.includes('room-one'), true);
 
   const peers = await json('/api/client/peers', { headers: clientHeaders(a) });
   assert.deepEqual(peers.body.map((x) => x.name), ['Client B']);
@@ -112,6 +139,26 @@ test('approval, room isolation, printer sharing and job lifecycle', async () => 
     method: 'POST', headers: clientHeaders(b), body: JSON.stringify({ status: 'completed' })
   });
   assert.equal(completed.body.status, 'completed');
+
+  const deletedEmptyDefault = await json('/api/admin/rooms/Default', {
+    method: 'DELETE', headers: adminHeaders
+  });
+  assert.equal(deletedEmptyDefault.response.status, 200);
+  const storedRooms = JSON.parse(fs.readFileSync(path.join(dataDir, 'db.json'), 'utf8')).rooms;
+  assert.equal(storedRooms.includes('Default'), false);
+});
+
+test('deleting the final Room survives a Store reload', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'remote-print-room-test-'));
+  try {
+    const store = new Store(directory);
+    assert.deepEqual(store.listRooms(), ['Default']);
+    assert.equal(store.deleteRoom('Default'), true);
+    assert.deepEqual(store.listRooms(), []);
+    assert.deepEqual(new Store(directory).listRooms(), []);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test.after(() => {
