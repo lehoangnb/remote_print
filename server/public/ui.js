@@ -88,23 +88,38 @@ export function renderOverview(state) {
 }
 
 export function renderRooms(state) {
-  const signature = JSON.stringify(state.rooms.map(room => [
-    room, state.clients.filter(client => client.room === room).length
-  ]));
+  const stats = new Map(state.rooms.map(room => [room, { total: 0, approved: 0 }]));
+  for (const client of state.clients) {
+    const entry = stats.get(client.room);
+    if (entry) {
+      entry.total++;
+      if (client.status === 'approved') entry.approved++;
+    }
+  }
+  const signature = JSON.stringify([...stats].map(([room, entry]) => [room, entry.total, entry.approved]));
   if (signature !== roomCardsSignature) {
     const fragment = document.createDocumentFragment();
     for (const room of state.rooms) {
+      const entry = stats.get(room);
       const card = node('button', 'room-card');
       card.type = 'button';
       card.dataset.filterRoom = room;
-      card.innerHTML = '<svg class="icon" aria-hidden="true"><use href="/icons.svg#rooms"/></svg>';
-      const description = node('span');
+      const icon = node('span', 'room-card-icon');
+      icon.innerHTML = '<svg class="icon" aria-hidden="true"><use href="/icons.svg#rooms"/></svg>';
+      const description = node('span', 'room-card-copy');
       description.append(node('strong', '', room),
-        node('small', '', state.clients.filter(client => client.room === room).length + ' máy trong Room'));
-      card.append(description);
+        node('small', '', entry.total + ' máy · ' + entry.approved + ' đã duyệt'));
+      const count = node('span', 'room-card-count', String(entry.total));
+      count.setAttribute('aria-hidden', 'true');
+      card.append(icon, description, count);
       fragment.append(card);
     }
-    if (state.rooms.length === 0) fragment.append(node('p', 'muted', 'Chưa có Room. Tạo Room đầu tiên để duyệt máy.'));
+    if (state.rooms.length === 0) {
+      const empty = node('div', 'room-empty');
+      empty.append(node('strong', '', 'Chưa có Room nào'),
+        node('p', '', 'Tạo Room đầu tiên để bắt đầu phân nhóm và duyệt máy client.'));
+      fragment.append(empty);
+    }
     elements['room-list'].replaceChildren(fragment);
     roomCardsSignature = signature;
   }
@@ -120,12 +135,13 @@ function createClientRow(client) {
   const row = document.createElement('tr');
   row.dataset.clientId = client.id;
   // Only static markup is interpolated. Server-provided text is assigned via textContent.
-  row.innerHTML = '<td><div class="machine-name"><span class="machine-avatar"><svg class="icon" aria-hidden="true"><use href="/icons.svg#computer"/></svg></span><strong class="name"></strong></div><small class="machine-id"></small></td>' +
-    '<td><span class="pill"></span><span class="client-connection"></span><small class="last-seen"></small></td>' +
-    '<td class="printers-cell"></td><td><div class="client-actions"><select></select><div class="action-buttons"><button type="button" class="button button-primary button-small approve"></button><button type="button" class="button button-danger button-small reject">Từ chối</button></div><p class="row-feedback" role="status"></p></div></td>';
-  const fields = Object.fromEntries(['name', 'machine-id', 'pill', 'client-connection', 'last-seen', 'printers-cell', 'approve', 'reject', 'row-feedback']
+  row.innerHTML = '<td data-label="Máy tính"><div class="machine-name"><span class="machine-avatar"><svg class="icon" aria-hidden="true"><use href="/icons.svg#computer"/></svg></span><strong class="name"></strong></div><small class="machine-id"></small></td>' +
+    '<td data-label="Trạng thái"><span class="pill"></span><span class="client-connection"></span><small class="last-seen"></small></td>' +
+    '<td data-label="Máy in chia sẻ" class="printers-cell"></td>' +
+    '<td data-label="Room &amp; quyền truy cập"><div class="client-access"><div class="access-summary"><span class="access-symbol"><svg class="icon" aria-hidden="true"><use href="/icons.svg#shield"/></svg></span><div><span class="access-eyebrow">Quyền truy cập</span><strong class="access-state"></strong></div></div><div class="assigned-room"><span>Room hiện tại</span><strong class="current-room"></strong></div><label class="room-picker"><span>Gán / chuyển Room</span><select></select></label><div class="action-buttons"><button type="button" class="button button-primary button-small approve"></button><button type="button" class="button button-danger button-small reject">Từ chối</button></div><p class="row-feedback" role="status"></p></div></td>';
+  const fields = Object.fromEntries(['name', 'machine-id', 'pill', 'client-connection', 'last-seen', 'printers-cell', 'approve', 'reject', 'row-feedback', 'access-summary', 'access-state', 'current-room']
     .map(className => [className, row.querySelector('.' + className)]));
-  fields.room = row.querySelector('select');
+  fields.room = row.querySelector('.room-picker select');
   fields.room.dataset.room = client.id;
   fields.approve.dataset.approve = client.id;
   fields.reject.dataset.reject = client.id;
@@ -179,6 +195,11 @@ export function renderClients(state) {
     text(f['machine-id'], 'ID · ' + client.id.slice(0, 8));
     f['machine-id'].title = client.id;
     statusBadge(f.pill, client.status, clientLabels);
+    f['access-summary'].dataset.status = client.status;
+    text(f['access-state'], client.status === 'approved' ? 'Đã cấp quyền' :
+      client.status === 'rejected' ? 'Đã từ chối' : 'Chờ cấp quyền');
+    text(f['current-room'], client.room || 'Chưa gán Room');
+    f['current-room'].classList.toggle('is-empty', !client.room);
     f['client-connection'].classList.toggle('online', online);
     text(f['client-connection'], online ? 'Đang online' : 'Đang offline');
     text(f['last-seen'], formatDate(client.lastSeenAt));
