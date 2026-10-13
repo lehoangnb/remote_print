@@ -138,10 +138,10 @@ function createClientRow(client) {
   row.innerHTML = '<td data-label="Máy tính"><div class="machine-name"><span class="machine-avatar"><svg class="icon" aria-hidden="true"><use href="/icons.svg#computer"/></svg></span><strong class="name"></strong></div><small class="machine-id"></small></td>' +
     '<td data-label="Trạng thái"><span class="pill"></span><span class="client-connection"></span><small class="last-seen"></small></td>' +
     '<td data-label="Máy in chia sẻ" class="printers-cell"></td>' +
-    '<td data-label="Room &amp; quyền truy cập"><div class="client-access"><div class="access-summary"><span class="access-symbol"><svg class="icon" aria-hidden="true"><use href="/icons.svg#shield"/></svg></span><div><span class="access-eyebrow">Quyền truy cập</span><strong class="access-state"></strong></div></div><div class="assigned-room"><span>Room hiện tại</span><strong class="current-room"></strong></div><label class="room-picker"><span>Gán / chuyển Room</span><select></select></label><div class="action-buttons"><button type="button" class="button button-primary button-small approve"></button><button type="button" class="button button-danger button-small reject">Từ chối</button></div><p class="row-feedback" role="status"></p></div></td>';
-  const fields = Object.fromEntries(['name', 'machine-id', 'pill', 'client-connection', 'last-seen', 'printers-cell', 'approve', 'reject', 'row-feedback', 'access-summary', 'access-state', 'current-room']
+    '<td data-label="Room &amp; quyền truy cập"><div class="client-access"><div class="access-meta"><span class="access-room">Room: <strong class="current-room"></strong></span><span class="access-draft" hidden>Chưa lưu</span></div><div class="access-edit"><select class="room-select"></select><button type="button" class="button button-primary button-small approve"></button><button type="button" class="button button-danger button-small reject">Từ chối</button></div><p class="row-feedback error" role="alert" hidden></p></div></td>';
+  const fields = Object.fromEntries(['name', 'machine-id', 'pill', 'client-connection', 'last-seen', 'printers-cell', 'approve', 'reject', 'row-feedback', 'access-draft', 'current-room']
     .map(className => [className, row.querySelector('.' + className)]));
-  fields.room = row.querySelector('.room-picker select');
+  fields.room = row.querySelector('.room-select');
   fields.room.dataset.room = client.id;
   fields.approve.dataset.approve = client.id;
   fields.reject.dataset.reject = client.id;
@@ -195,10 +195,8 @@ export function renderClients(state) {
     text(f['machine-id'], 'ID · ' + client.id.slice(0, 8));
     f['machine-id'].title = client.id;
     statusBadge(f.pill, client.status, clientLabels);
-    f['access-summary'].dataset.status = client.status;
-    text(f['access-state'], client.status === 'approved' ? 'Đã cấp quyền' :
-      client.status === 'rejected' ? 'Đã từ chối' : 'Chờ cấp quyền');
-    text(f['current-room'], client.room || 'Chưa gán Room');
+    text(f['current-room'], client.room || 'Chưa gán');
+    f['current-room'].title = client.room || 'Chưa gán Room';
     f['current-room'].classList.toggle('is-empty', !client.room);
     f['client-connection'].classList.toggle('online', online);
     text(f['client-connection'], online ? 'Đang online' : 'Đang offline');
@@ -206,18 +204,18 @@ export function renderClients(state) {
     renderPrinterList(view, client.printers || []);
     const room = state.roomDrafts.has(client.id) ? state.roomDrafts.get(client.id) : client.room || '';
     updateRoomOptions(f.room, state.rooms, 'Chọn Room…', room);
-    f.room.setAttribute('aria-label', 'Room cho ' + client.name);
-    f.approve.setAttribute('aria-label', (client.status === 'approved' ? 'Áp dụng Room cho ' : 'Duyệt ') + client.name);
+    f.room.setAttribute('aria-label', 'Gán hoặc chuyển Room cho ' + client.name);
+    f['access-draft'].hidden = !(client.status === 'approved' && f.room.value !== client.room);
+    f.approve.setAttribute('aria-label', (client.status === 'approved' ? 'Lưu Room cho ' : 'Duyệt ') + client.name);
     f.reject.setAttribute('aria-label', 'Từ chối ' + client.name);
     const busy = state.busyClients.has(client.id);
     f.room.disabled = busy;
     f.approve.disabled = busy || !f.room.value || (client.status === 'approved' && f.room.value === client.room);
     f.reject.disabled = busy || client.status === 'rejected';
-    text(f.approve, busy ? 'Đang lưu…' : client.status === 'approved' ? 'Áp dụng' : 'Duyệt');
+    text(f.approve, busy ? 'Đang lưu…' : client.status === 'approved' ? 'Lưu' : 'Duyệt');
     const feedback = state.clientErrors.get(client.id);
-    f['row-feedback'].classList.toggle('error', Boolean(feedback));
-    text(f['row-feedback'], feedback || (!f.room.value ? 'Chọn Room để duyệt máy.' :
-      client.status === 'approved' && f.room.value !== client.room ? 'Thay đổi Room chưa được lưu.' : ''));
+    f['row-feedback'].hidden = !feedback;
+    text(f['row-feedback'], feedback || '');
   }
   const empty = elements['clients-empty'];
   empty.hidden = visible > 0;
