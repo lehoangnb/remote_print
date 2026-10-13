@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net8.0-windows</TargetFramework><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings></PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../RemotePrint.Client/Models.cs" Link="Models.cs"/>
+    <Compile Include="../RemotePrint.Client/EncryptionService.cs" Link="EncryptionService.cs"/>
+    <Compile Include="../RemotePrint.Client/RemotePrintApi.cs" Link="RemotePrintApi.cs"/>
+    <Compile Include="../RemotePrint.Client/PrinterService.cs" Link="PrinterService.cs"/>
+    <Compile Include="../RemotePrint.Client/ConfigService.cs" Link="ConfigService.cs"/>
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.10"/>
+  </ItemGroup>
+</Project>

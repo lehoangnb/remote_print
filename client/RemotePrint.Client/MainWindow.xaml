@@ -1,0 +1,229 @@
+<Window x:Class="RemotePrint.Client.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Remote Print" Width="1160" Height="840" MinWidth="1000" MinHeight="740"
+        FontFamily="Segoe UI" Background="#F3F5F9" WindowStartupLocation="CenterScreen">
+    <Window.Resources>
+        <Style TargetType="Button">
+            <Setter Property="Background" Value="#3659E3"/><Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/><Setter Property="Padding" Value="16,10"/>
+            <Setter Property="FontWeight" Value="SemiBold"/><Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template"><Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Surface" Background="{TemplateBinding Background}" CornerRadius="7" Padding="{TemplateBinding Padding}">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Surface" Property="Opacity" Value="0.85"/></Trigger>
+                        <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Surface" Property="Opacity" Value="0.45"/></Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value></Setter>
+        </Style>
+        <Style x:Key="SecondaryButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Background" Value="#EBEFF6"/><Setter Property="Foreground" Value="#344054"/>
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="Padding" Value="12,10"/><Setter Property="BorderBrush" Value="#DCE2EB"/>
+            <Setter Property="Margin" Value="0,6,0,16"/><Setter Property="FontSize" Value="14"/>
+            <Setter Property="Foreground" Value="#172033"/>
+        </Style>
+        <Style x:Key="Card" TargetType="Border">
+            <Setter Property="Background" Value="White"/><Setter Property="CornerRadius" Value="12"/>
+            <Setter Property="Padding" Value="22"/><Setter Property="BorderBrush" Value="#E5EAF2"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+        <Style x:Key="Label" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#344054"/><Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+        <Style x:Key="Section" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#172033"/><Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontSize" Value="18"/><Setter Property="Margin" Value="0,0,0,8"/>
+        </Style>
+    </Window.Resources>
+    <Grid Background="#F3F5F9">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="190"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+        <Border Background="#14213B" Padding="22,28">
+            <Grid>
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                <StackPanel>
+                    <Border Background="#3659E3" CornerRadius="12" Width="48" Height="48" HorizontalAlignment="Left" Margin="0,0,0,16">
+                        <TextBlock Text="RP" FontSize="21" FontWeight="Bold" Foreground="White" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                    </Border>
+                    <TextBlock Text="Remote Print" Foreground="White" FontSize="21" FontWeight="SemiBold"/>
+                    <TextBlock Text="Máy in của bạn, ở mọi nơi" Foreground="#99ABC8" Margin="0,6,0,22" TextWrapping="Wrap"/>
+                    <Border Background="#26385C" CornerRadius="8" Padding="14,12">
+                        <TextBlock Text="▣   Tổng quan" Foreground="White" FontWeight="SemiBold"/>
+                    </Border>
+                    <TextBlock Text="In từ ứng dụng bất kỳ" Foreground="#B7C5DD" Margin="0,20,0,10" FontWeight="SemiBold"/>
+                    <TextBlock Text="1. Bấm Ctrl + P&#x0a;2. Chọn Remote Print&#x0a;3. Chọn máy in đích" Foreground="#99ABC8" LineHeight="26"/>
+                </StackPanel>
+                <Border Grid.Row="1" Background="#213250" CornerRadius="10" Padding="10"
+                        VerticalAlignment="Center" Margin="0,16">
+                    <StackPanel>
+                        <TextBlock Text="Máy in ảo" FontWeight="SemiBold" FontSize="15" Foreground="White"/>
+                        <TextBlock x:Name="VirtualPrinterStatusText" Text="Đang kiểm tra…" Foreground="#B7C5DD"
+                                   FontSize="11" TextWrapping="Wrap" Margin="0,6,0,10"/>
+                        <Button x:Name="ServiceInstallButton" Content="Cài dịch vụ" Click="InstallService_Click"
+                                Padding="8,8" Margin="0,0,0,6"/>
+                        <Button Content="Cài máy in ảo" Style="{StaticResource SecondaryButton}" Click="InstallVirtualPrinter_Click"
+                                Background="#31445F" Foreground="#EFF4FF" Padding="8,8" Margin="0,0,0,6"/>
+                        <Button Content="Gỡ máy in ảo" Style="{StaticResource SecondaryButton}" Click="UninstallVirtualPrinter_Click"
+                                Background="#31445F" Foreground="#EFF4FF" Padding="8,8"/>
+                    </StackPanel>
+                </Border>
+                <StackPanel Grid.Row="2">
+                    <TextBlock Text="Chạy cùng Windows" Foreground="#CBD6E9" FontWeight="SemiBold"/>
+                    <TextBlock Text="Đóng cửa sổ, dịch vụ vẫn nhận và xử lý lệnh in." Foreground="#99ABC8" TextWrapping="Wrap" Margin="0,7,0,0"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+        <Grid Grid.Column="1" Margin="24,18">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/><RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <Grid Margin="0,0,0,12">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <StackPanel>
+                    <TextBlock Text="Trung tâm máy in" FontSize="27" FontWeight="Bold" Foreground="#172033"/>
+                    <TextBlock Text="Kết nối máy tính và quản lý các máy in trong Room của bạn." Foreground="#667085" Margin="0,6,0,0"/>
+                </StackPanel>
+                <Button Grid.Column="1" Content="↻  Làm mới" Style="{StaticResource SecondaryButton}" VerticalAlignment="Center" Click="RefreshButton_Click"/>
+            </Grid>
+            <Grid Grid.Row="1" Margin="0,0,0,12">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="14"/><ColumnDefinition Width="*"/><ColumnDefinition Width="14"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <Border Style="{StaticResource Card}" Padding="16,10">
+                    <StackPanel><TextBlock Text="DỊCH VỤ WINDOWS" Foreground="#667085" FontSize="11" FontWeight="SemiBold"/>
+                        <TextBlock x:Name="ServiceStatusText" Text="Đang kiểm tra…" Foreground="#172033" FontWeight="SemiBold" FontSize="17" Margin="0,8,0,0"/>
+                    </StackPanel>
+                </Border>
+                <Border Grid.Column="2" Style="{StaticResource Card}" Padding="16,10">
+                    <StackPanel><TextBlock Text="KẾT NỐI SERVER" Foreground="#667085" FontSize="11" FontWeight="SemiBold"/>
+                        <TextBlock x:Name="StatusText" Text="Chưa kết nối" Foreground="#172033" FontWeight="SemiBold" FontSize="17" Margin="0,8,0,0" TextTrimming="CharacterEllipsis"/>
+                    </StackPanel>
+                </Border>
+                <Border Grid.Column="4" Style="{StaticResource Card}" Padding="16,10">
+                    <StackPanel><TextBlock Text="ROOM HIỆN TẠI" Foreground="#667085" FontSize="11" FontWeight="SemiBold"/>
+                        <TextBlock x:Name="RoomText" Text="Chưa được gán" Foreground="#3659E3" FontWeight="SemiBold" FontSize="17" Margin="0,8,0,0"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+            <Border Grid.Row="2" Style="{StaticResource Card}" Padding="16,12" Margin="0,0,0,14">
+                <Grid>
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                    <DockPanel Margin="0,0,0,8">
+                        <TextBlock Text="Thiết lập máy này" Style="{StaticResource Section}" FontSize="16" Margin="0"/>
+                        <TextBlock Text="Room do quản trị viên gán trên server." Foreground="#667085"
+                                   HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                    </DockPanel>
+                    <Grid Grid.Row="1">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="180"/><ColumnDefinition Width="12"/>
+                            <ColumnDefinition Width="*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="Tên máy tính" Style="{StaticResource Label}"/>
+                            <TextBox x:Name="ComputerNameBox" MaxLength="80" Padding="10,7" Margin="0,5,0,0"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Text="Địa chỉ server" Style="{StaticResource Label}"/>
+                            <TextBox x:Name="ServerUrlBox" Padding="10,7" Margin="0,5,0,0"
+                                     ToolTip="https://print.example.com hoặc http://192.168.1.10:7443"/>
+                        </StackPanel>
+                        <Button Grid.Column="4" x:Name="ConnectButton" Content="Lưu và kết nối"
+                                VerticalAlignment="Bottom" Padding="16,9" Click="ConnectButton_Click"/>
+                    </Grid>
+                </Grid>
+            </Border>
+            <Grid Grid.Row="3">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="320"/><ColumnDefinition Width="16"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <Border Grid.Column="0" Style="{StaticResource Card}" Padding="16">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <TextBlock Text="Máy in chia sẻ" Style="{StaticResource Section}"/>
+                                <TextBlock Grid.Row="1" Text="Chọn máy in cho phép các máy cùng Room sử dụng." Foreground="#667085" TextWrapping="Wrap" Margin="0,0,0,10"/>
+                                <ScrollViewer x:Name="PrinterScroll" Grid.Row="2" VerticalScrollBarVisibility="Auto"
+                                              HorizontalScrollBarVisibility="Disabled" CanContentScroll="False" PanningMode="VerticalOnly">
+                                <ItemsControl x:Name="PrintersList">
+                                    <ItemsControl.ItemTemplate><DataTemplate>
+                                        <Border Background="#F7F9FC" CornerRadius="6" Padding="10" Margin="0,0,0,6">
+                                            <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}">
+                                                <TextBlock Text="{Binding Name}" TextWrapping="Wrap" Foreground="#344054"/>
+                                            </CheckBox>
+                                        </Border>
+                                    </DataTemplate></ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                </ScrollViewer>
+                                <DockPanel Grid.Row="3" Margin="0,10,0,0">
+                                    <Button DockPanel.Dock="Right" Content="Quét lại" Style="{StaticResource SecondaryButton}"
+                                            Padding="12,8" Click="ScanPrintersButton_Click" Margin="10,0,0,0"/>
+                                    <TextBlock x:Name="PrintersHintText" Foreground="#667085" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                                </DockPanel>
+                            </Grid>
+                        </Border>
+                <Grid Grid.Column="2">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" MinHeight="140"/>
+                        <RowDefinition Height="14"/>
+                        <RowDefinition Height="1.2*" MinHeight="140"/>
+                    </Grid.RowDefinitions>
+                    <Border Style="{StaticResource Card}" Padding="16">
+                        <Grid>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                            <TextBlock Text="Máy cùng Room" Style="{StaticResource Section}" Margin="0,0,0,6"/>
+                            <TextBlock x:Name="PeersSummaryText" Grid.Row="1" Text="Chỉ các máy online mới xuất hiện." Foreground="#667085" Margin="0,0,0,8"/>
+                            <Grid Grid.Row="2">
+                                <ListBox x:Name="PeersGrid" BorderThickness="0" Background="Transparent" HorizontalContentAlignment="Stretch">
+                                    <ListBox.ItemTemplate><DataTemplate>
+                                        <Border Background="#F7F9FC" Padding="14" CornerRadius="8" Margin="0,0,0,8">
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="15" Foreground="#172033"/>
+                                                <TextBlock Text="{Binding PrinterSummary}" TextWrapping="Wrap" Foreground="#667085" Margin="0,6,0,0"/>
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate></ListBox.ItemTemplate>
+                                </ListBox>
+                                <StackPanel x:Name="EmptyPeersPanel" VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="280">
+                                    <TextBlock Text="Chưa có máy khác online" FontSize="16" FontWeight="SemiBold" Foreground="#344054" TextAlignment="Center"/>
+                                    <TextBlock Text="Kết nối client trên máy khác và duyệt vào cùng Room để in từ xa." Foreground="#667085" TextWrapping="Wrap" TextAlignment="Center" Margin="0,8,0,0"/>
+                                </StackPanel>
+                            </Grid>
+                        </Grid>
+                    </Border>
+                    <GridSplitter Grid.Row="1" Height="14" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                                  ResizeDirection="Rows" ResizeBehavior="PreviousAndNext" ShowsPreview="True"
+                                  Background="Transparent" Cursor="SizeNS" ToolTip="Kéo để điều chỉnh chiều cao nhật ký">
+                        <GridSplitter.Template>
+                            <ControlTemplate TargetType="GridSplitter">
+                                <Border Width="64" Height="4" CornerRadius="2" Background="#CBD5E1"
+                                        HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </ControlTemplate>
+                        </GridSplitter.Template>
+                    </GridSplitter>
+                    <Border Grid.Row="2" Style="{StaticResource Card}" Padding="16">
+                        <Grid>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                            <TextBlock Text="Hoạt động gần đây" Style="{StaticResource Section}"/>
+                            <ListBox x:Name="ActivityList" Grid.Row="1" BorderThickness="0" FontSize="12" Foreground="#667085"
+                                     HorizontalContentAlignment="Stretch" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,3" ToolTip="{Binding}"/>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </Grid>
+            <TextBlock Grid.Row="4" x:Name="FooterText" Text="Đóng cửa sổ để thu về khay hệ thống. Windows Service tiếp tục nhận và in tài liệu."
+                       Foreground="#667085" FontSize="12" Margin="0,12,0,0" TextWrapping="Wrap"/>
+        </Grid>
+    </Grid>
+</Window>

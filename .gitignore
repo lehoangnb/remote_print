@@ -1,0 +1,52 @@
+# ===== Dependencies =====
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+package-lock-tmp.json
+
+# ===== Env / secrets (giữ lại *.example để commit) =====
+server/.env
+*.env.local
+*.env.*.local
+
+# ===== Runtime data / certs / logs =====
+server/data/
+server/certs/
+server/test-data/
+*.log
+logs/
+
+# ===== Build / publish output =====
+dist/
+artifacts/
+publish/
+coverage/
+.nyc_output/
+
+# ===== .NET / C# =====
+[Bb]in/
+[Oo]bj/
+out/
+TestResults/
+BenchmarkDotNet.Artifacts/
+
+# ===== Visual Studio / VS Code / Rider =====
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ===== Tools binary lớn, tải riêng khi build =====
+client/**/Tools/SumatraPDF.exe

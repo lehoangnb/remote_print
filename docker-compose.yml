@@ -1,0 +1,12 @@
+services:
+  remote-print-server:
+    build: ./server
+    restart: unless-stopped
+    env_file: ./server/.env
+    ports:
+      - "7443:7443"
+    volumes:
+      - remote-print-data:/app/data
+
+volumes:
+  remote-print-data:

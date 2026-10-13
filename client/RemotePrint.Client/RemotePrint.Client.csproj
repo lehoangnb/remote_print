@@ -1,0 +1,18 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../RemotePrint.Core/RemotePrint.Core.csproj" />
+    <Compile Remove="Models.cs;EncryptionService.cs;RemotePrintApi.cs;PrinterService.cs;ConfigService.cs;WebViewPrintService.cs;VirtualPrintWatcher.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Update="Scripts\*.ps1" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
