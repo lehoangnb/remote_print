@@ -37,8 +37,8 @@ Chi tiết cách chạy xem `README.md`.
 
 ## Trạng thái hiện tại (2026-10-13)
 
-- Đang commit theo yêu cầu user: `AGENT.md` (mới) + tokensave sync state, push `origin main`.
-- Dirty trước commit: `M .tokensave/branch-meta.json`, `M .tokensave/tokensave.db`, `?? AGENT.md`.
+- Commit mới nhất: `6b8a1fc` Add AGENT.md conventions and sync tokensave index.
+- Cây sạch sau commit, chờ push `origin main`.
 
 ## Nhật ký thay đổi
 
@@ -47,5 +47,5 @@ Chi tiết cách chạy xem `README.md`.
 | 2026-10-13 | Commit initial + gitignore mở rộng (Node/.NET/Win)    | `.gitignore`, toàn repo               | `cd190b1`  |
 | 2026-10-13 | Init tokensave (37 files, 718 nodes)                  | `.tokensave/`                         | chưa commit|
 | 2026-10-13 | Track tokensave index để dùng chung nhiều máy         | `.gitignore`, `.tokensave/`           | `9113093`  |
-| 2026-10-13 | Tạo AGENT.md: cấm tự commit, mọi đổi phải ghi log đây | `AGENT.md`                            | chung commit TBD |
-| 2026-10-13 | Commit AGENT.md + tokensave sync, push origin main    | `AGENT.md`, `.tokensave/`             | chung commit TBD |
+| 2026-10-13 | Tạo AGENT.md: cấm tự commit, mọi đổi phải ghi log đây | `AGENT.md`                            | `6b8a1fc`  |
+| 2026-10-13 | Commit AGENT.md + tokensave sync, push origin main    | `AGENT.md`, `.tokensave/`             | `6b8a1fc`  |
