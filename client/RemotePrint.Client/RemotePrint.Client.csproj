@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWindowsForms>true</UseWindowsForms>
+    <StartupObject>RemotePrint.Client.Program</StartupObject>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../RemotePrint.Core/RemotePrint.Core.csproj" />
+    <Compile Remove="Models.cs;RemotePrintApi.cs;PrinterService.cs;ConfigService.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The installer seams (IServiceRegistrar) are exercised
+         by the Checks suite with fakes instead of a real service control manager. -->
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>RemotePrint.Checks</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+</Project>

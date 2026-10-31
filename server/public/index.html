@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Remote Print · Quản trị</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Đến nội dung chính</a>
+  <section id="login" class="login-page" aria-labelledby="login-title">
+    <form id="login-form" class="login-card">
+      <div class="login-brand"><span class="brand-mark">RP</span><strong>Remote Print</strong></div>
+      <h2 id="login-title">Đăng nhập quản trị</h2>
+      <label for="username">Tài khoản</label>
+      <input id="username" name="username" autocomplete="username" required value="admin">
+      <label for="password">Mật khẩu</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <p id="login-error" class="field-error" role="alert"></p>
+      <button id="login-submit" type="submit" class="button button-primary login-submit">Đăng nhập <span aria-hidden="true">→</span></button>
+    </form>
+  </section>
+
+  <div id="dashboard" class="app-shell" hidden>
+    <main id="main-content" class="workspace">
+      <header id="overview" class="page-header">
+        <div class="header-identity"><span class="brand-mark">RP</span><h1>Remote Print <span>Quản trị</span></h1></div>
+        <div class="header-actions">
+          <label class="auto-refresh"><input id="auto-refresh" type="checkbox" checked>Tự động</label>
+          <button id="refresh" type="button" class="button button-secondary"><svg class="icon" aria-hidden="true"><use href="/icons.svg#refresh"/></svg>Làm mới</button>
+          <button id="logout" type="button" class="button button-ghost"><svg class="icon" aria-hidden="true"><use href="/icons.svg#logout"/></svg>Đăng xuất</button>
+        </div>
+      </header>
+      <div class="update-line"><span class="connection-dot" aria-hidden="true"></span><span id="updated-at">Đang tải…</span></div>
+      <div id="notice" class="notice" role="status" hidden><span id="notice-text"></span><button id="notice-dismiss" type="button" aria-label="Đóng thông báo">×</button></div>
+
+      <section class="metrics" aria-label="Tổng quan hệ thống">
+        <button class="metric-card" type="button" data-client-filter="all"><span class="metric-icon blue"><svg class="icon" aria-hidden="true"><use href="/icons.svg#computer"/></svg></span><span class="metric-label">Máy client</span><strong id="metric-clients">—</strong></button>
+        <button class="metric-card" type="button" data-client-filter="online"><span class="metric-icon green"><svg class="icon" aria-hidden="true"><use href="/icons.svg#signal"/></svg></span><span class="metric-label">Online</span><strong id="metric-online">—</strong></button>
+        <button class="metric-card" type="button" data-client-filter="pending"><span class="metric-icon amber"><svg class="icon" aria-hidden="true"><use href="/icons.svg#clock"/></svg></span><span class="metric-label">Chờ duyệt</span><strong id="metric-pending">—</strong></button>
+      </section>
+
+      <section id="rooms-panel" class="panel rooms-panel" aria-labelledby="rooms-title">
+        <div class="section-heading">
+          <h2 id="rooms-title">Room <span id="room-count" class="count-badge">0</span></h2>
+          <form id="room-form" class="room-form">
+            <label class="sr-only" for="new-room">Tên Room mới</label>
+            <input id="new-room" name="room" maxlength="80" placeholder="Tên Room mới" autocomplete="off" required>
+            <button id="room-submit" type="submit" class="button button-primary"><span aria-hidden="true">+</span>Tạo Room</button>
+          </form>
+        </div>
+        <div id="room-list" class="room-list" aria-label="Danh sách Room"></div>
+        <p id="room-error" class="field-error" role="alert"></p>
+      </section>
+
+      <section id="clients-panel" class="panel" aria-labelledby="clients-title">
+        <div class="section-heading"><div><h2 id="clients-title">Máy client <span id="client-count" class="count-badge">0</span></h2></div></div>
+        <div class="filters">
+          <div class="search-field"><svg class="icon" aria-hidden="true"><use href="/icons.svg#search"/></svg><label class="sr-only" for="client-search">Tìm máy client</label><input id="client-search" type="search" placeholder="Tìm máy client…" autocomplete="off"></div>
+          <label class="sr-only" for="client-status-filter">Trạng thái máy</label>
+          <select id="client-status-filter"><option value="all">Tất cả trạng thái</option><option value="pending">Chờ duyệt</option><option value="approved">Đã duyệt</option><option value="rejected">Bị từ chối</option><option value="online">Đang online</option><option value="offline">Đang offline</option></select>
+          <label class="sr-only" for="client-room-filter">Lọc theo Room</label>
+          <select id="client-room-filter"><option value="">Tất cả Room</option></select>
+          <button id="clear-filters" type="button" class="button button-ghost">Bỏ lọc</button>
+        </div>
+        <div class="table-viewport client-table-viewport">
+          <table class="client-table"><caption class="sr-only">Danh sách máy client và quyền truy cập</caption><thead><tr><th scope="col">Máy</th><th scope="col">Trạng thái</th><th scope="col">Máy in</th><th scope="col">Room &amp; quyền</th></tr></thead><tbody id="clients"></tbody></table>
+          <div id="clients-empty" class="empty-state"><svg class="empty-icon" aria-hidden="true"><use href="/icons.svg#computer"/></svg><strong>Đang tải máy client…</strong><p>Dữ liệu sẽ xuất hiện khi kết nối với server.</p></div>
+        </div>
+        <div class="panel-footer"><span id="client-result-count">Đang tải…</span></div>
+      </section>
+
+    </main>
+  </div>
+  <script src="/app.js" type="module"></script>
+</body>
+</html>

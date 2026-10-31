@@ -1,0 +1,7 @@
+FROM node:22-alpine
+RUN apk add --no-cache iproute2 nftables wireguard-tools
+WORKDIR /app
+COPY src/tunnel-controller.js src/tunnel-policy.js ./src/
+COPY package.json ./package.json
+ENV TUNNEL_STATE_DIR=/app/tunnel-state TUNNEL_PRIVATE_KEY_FILE=/run/secrets/tunnel_private_key
+CMD ["node", "src/tunnel-controller.js"]

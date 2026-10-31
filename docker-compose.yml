@@ -1,0 +1,16 @@
+services:
+  remote-print-server:
+    build: ./server
+    restart: unless-stopped
+    env_file: ./server/.env
+    environment:
+      TUNNEL_MODE: mesh
+      MESH_UDP_PORT: 51821
+    ports:
+      - "7443:7443"
+      - "${MESH_UDP_PORT:-51821}:51821/udp"
+    volumes:
+      - remote-print-data:/app/data
+
+volumes:
+  remote-print-data:
