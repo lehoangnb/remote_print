@@ -1,0 +1,20 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { EnrollmentInvites } from '../src/enrollment.js';
+test('invites expire at five minutes, bind once and permit only identical enrollment retries', () => {
+  let now = Date.now(); const invites = new EnrollmentInvites(() => now);
+  const created = invites.create('https://print.example.com');
+  const code = JSON.parse(Buffer.from(created.code.slice(8), 'base64url').toString());
+  const id = code.endpoint.split('/').at(-1);
+  assert.equal(Date.parse(created.expiresAt), now + 300000);
+  assert.equal(invites.claim(id, 'x'.repeat(43), 'a', 'secret'), false);
+  assert.equal(invites.claim(id, code.key, 'a', 'secret'), true);
+  assert.equal(invites.claim(id, code.key, 'a', 'secret'), true);
+  assert.equal(invites.claim(id, code.key, 'b', 'secret'), false);
+  assert.equal(invites.claim(id, code.key, 'a', 'other'), false);
+  now += 300000;
+  assert.equal(invites.claim(id, code.key, 'a', 'secret'), false);
+  assert.equal(new EnrollmentInvites().claim(id, code.key, 'a', 'secret'), false);
+  assert.throws(() => invites.create('http://print.example.com'));
+  assert.throws(() => invites.create('https://user:password@print.example.com'));
+});

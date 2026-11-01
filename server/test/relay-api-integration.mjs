@@ -82,7 +82,9 @@ try {
   for (const room of ['one', 'ONE', 'two']) {
     const deviceId = crypto.randomUUID(), secret = crypto.randomBytes(48).toString('base64'), key = keypair();
     const headers = { 'x-device-id': deviceId, 'x-device-secret': secret };
-    await request('/api/client/register', 'POST', { deviceId, secret, name: 'Test client', printers: [] });
+    const invite = await request('/api/admin/enrollment', 'POST', { serverUrl: base }, admin);
+    const code = JSON.parse(Buffer.from(invite.code.slice(8), 'base64url').toString());
+    await request('/' + code.endpoint, 'POST', { deviceId, secret, name: 'Test client', printers: [] }, { 'x-enrollment-key': code.key });
     const approval = await request(`/api/admin/clients/${deviceId}/approve`, 'POST', { room }, admin);
     if (room === 'ONE') assert.equal(approval.room, 'one');
     const info = await request('/api/client/tunnel', 'PUT', { publicKey: key.publicKey }, headers);

@@ -13,6 +13,7 @@ import { Store } from './store.js';
 import { cleanText, validateRegistration } from './validation.js';
 import { isTunnelKey } from './tunnel-policy.js';
 import { attachMeshTransport } from './mesh-transport.js';
+import { EnrollmentInvites } from './enrollment.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -53,6 +54,7 @@ const adminPasswordHash = await bcrypt.hash(adminPassword, 12);
 const dataDir = process.env.DATA_DIR || './data';
 const tunnelStateDir = tunnelMode === 'legacy' && tunnelEndpoint ? (process.env.TUNNEL_STATE_DIR || path.join(dataDir, 'tunnel-state')) : null;
 const store = new Store(dataDir, tunnelStateDir);
+const invitations = new EnrollmentInvites();
 if (tunnelStateDir) {
   const heartbeat = path.join(store.tunnelStateDir, 'tunnel-heartbeat');
   const beat = () => {
@@ -111,12 +113,31 @@ app.get('/health', (_req, res) => res.json({ ok: true, time: new Date().toISOStr
 app.post('/api/client/register', async (req, res) => {
   const input = validateRegistration(req.body ?? {});
   if (!input) return error(res, 400, 'INVALID_REGISTRATION');
+  if (!store.data.clients.some(client => client.id === input.deviceId)) return error(res, 403, 'ENROLLMENT_REQUIRED');
   try {
     res.json(await store.registerClient(input));
   } catch (e) {
     if (e.message === 'DEVICE_AUTH_FAILED') return error(res, 401, e.message);
     throw e;
   }
+});
+
+const enrollmentLimiter = rateLimit({ windowMs: 60_000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false });
+app.post('/api/client/enroll/:id', enrollmentLimiter, async (req, res) => {
+  const input = validateRegistration(req.body ?? {});
+  if (!input) return error(res, 400, 'INVALID_REGISTRATION');
+  if (!invitations.claim(req.params.id, req.header('x-enrollment-key'), input.deviceId, input.secret))
+    return error(res, 404, 'ENROLLMENT_INVALID_OR_EXPIRED');
+  try { res.setHeader('Cache-Control', 'no-store'); res.json(await store.registerClient(input)); }
+  catch (e) { if (e.message === 'DEVICE_AUTH_FAILED') return error(res, 401, e.message); throw e; }
+});
+app.post('/api/admin/enrollment', adminAuth, (req, res) => {
+  try {
+    const result = invitations.create(String(req.body?.serverUrl ?? ''));
+    res.setHeader('Cache-Control', 'no-store');
+    store.audit('enrollment_invite_created', { username: req.admin.sub });
+    res.json(result);
+  } catch { return error(res, 400, 'INVALID_ENROLLMENT_SERVER_URL_OR_LIMIT'); }
 });
 
 app.get('/api/client/status', clientAuth, (req, res) => res.json(store.publicClient(req.client)));

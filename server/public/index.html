@@ -55,7 +55,7 @@
       </section>
 
       <section id="clients-panel" class="panel" aria-labelledby="clients-title">
-        <div class="section-heading"><div><h2 id="clients-title">Máy client <span id="client-count" class="count-badge">0</span></h2></div></div>
+        <div class="section-heading"><h2 id="clients-title">Máy client <span id="client-count" class="count-badge">0</span></h2><button id="pair-open" type="button" class="button button-primary"><span aria-hidden="true">+</span>Thêm client</button></div>
         <div class="filters">
           <div class="search-field"><svg class="icon" aria-hidden="true"><use href="/icons.svg#search"/></svg><label class="sr-only" for="client-search">Tìm máy client</label><input id="client-search" type="search" placeholder="Tìm máy client…" autocomplete="off"></div>
           <label class="sr-only" for="client-status-filter">Trạng thái máy</label>
@@ -73,6 +73,22 @@
 
     </main>
   </div>
+  <dialog id="pair-dialog" class="pair-dialog" aria-labelledby="pair-title" aria-describedby="pair-description">
+    <div class="pair-heading">
+      <span class="pair-symbol"><svg class="icon" aria-hidden="true"><use href="/icons.svg#computer"/></svg></span>
+      <button id="pair-close" type="button" class="pair-close" aria-label="Đóng hộp thoại">×</button>
+      <h2 id="pair-title">Thêm client</h2>
+      <p id="pair-description">Tạo mã ghép nối để kết nối một máy mới.</p>
+    </div>
+    <div class="pair-body">
+      <details class="pair-address"><summary>Địa chỉ server</summary><label class="sr-only" for="pair-server">Địa chỉ HTTPS công khai</label><input id="pair-server" type="url" placeholder="https://print.example.com" autocomplete="off"><p>Dùng địa chỉ HTTPS mà client truy cập được.</p></details>
+      <div class="pair-code-heading"><label for="pair-code">Mã ghép nối</label><span class="pair-badge">Một máy · 5 phút</span></div>
+      <textarea id="pair-code" rows="4" placeholder="Mã sẽ xuất hiện ở đây sau khi bạn tạo." readonly autocomplete="off" spellcheck="false"></textarea>
+      <p class="pair-hint">Dán mã vào ô <strong>Địa chỉ server</strong> trong cấu hình client, rồi bấm <strong>Lưu và kết nối</strong>.</p>
+      <p id="pair-status" class="pair-status" role="status" aria-live="polite"></p>
+    </div>
+    <div class="pair-footer"><button id="pair-create" type="button" class="button button-secondary" autofocus>Tạo mã</button><button id="pair-copy" type="button" class="button button-primary" disabled>Sao chép mã</button></div>
+  </dialog>
   <script src="/app.js" type="module"></script>
 </body>
 </html>

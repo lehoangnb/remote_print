@@ -34,6 +34,18 @@ và trước khi đưa vào spooler. Máy bị đổi Room/từ chối hoặc m�
 
 ## Cài đặt và nâng cấp
 
+Máy mới phải ghép nối bằng mã mời: trong trang admin chọn **Tạo mã 5 phút**,
+kiểm tra địa chỉ HTTPS công khai rồi sao chép mã `RPPAIR1.…`. Người dùng dán mã
+vào ô **Địa chỉ server** của client và lưu. Mã chứa URL server, endpoint ngẫu nhiên
+và khóa ngẫu nhiên 256 bit, chỉ gắn với một danh tính máy, hết hạn sau 5 phút.
+Mã chưa dùng mất hiệu lực khi server khởi động lại. Không lưu mã vào nhật ký.
+
+Ghép nối xong vẫn cần admin duyệt Room. Client đã đăng ký tiếp tục dùng khóa
+thiết bị hiện có; không cần mã mới sau mỗi 5 phút. Mã mời không xuất hiện trong
+snapshot gửi cho giao diện và được xóa khỏi cấu hình service sau đăng ký thành
+công. Đổi địa chỉ server sẽ tạo danh tính thiết bị mới để không gửi khóa cũ sang
+server khác. Server mới không nhận đăng ký tự do từ client cũ chưa ghép nối.
+
 Chỉ duyệt các máy tin cậy vào Room vì driver có thể được cài bằng service SYSTEM.
 
 Cập nhật **server và toàn bộ client** để nhận biết tính năng `nativePrinting`.
@@ -105,7 +117,7 @@ volumes:
 ```
 
 Dùng reverse proxy HTTPS chuyển tới 7443 và hỗ trợ WebSocket, giữ header
-`x-device-id`, `x-device-secret`; không ghi header bí mật vào access log.
+`x-device-id`, `x-device-secret`, `x-enrollment-key`; không ghi header bí mật vào access log.
 Nếu proxy ở máy khác thì điều chỉnh binding TCP 7443 cho mạng nội bộ phù hợp.
 Mở HTTPS và UDP 51821 tới server. Với Cloudflare proxy, UDP discovery phải dùng
 hostname DNS-only trỏ tới origin qua `MESH_PUBLIC_HOST`; WSS vẫn dùng domain API.

@@ -8,6 +8,8 @@ public sealed class ClientConfig
     public string DeviceSecret { get; set; } = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(48));
     public string ComputerName { get; set; } = $"PRINT-{Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(3))}";
     public string ServerUrl { get; set; } = "";
+    public string EnrollmentEndpoint { get; set; } = "";
+    public string EnrollmentKey { get; set; } = "";
     public List<string> SharedPrinters { get; set; } = [];
     public Dictionary<string, string> ManagedWindowsShares { get; set; } = new();
 }

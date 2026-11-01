@@ -9,6 +9,43 @@ const state = {
 };
 let loadPromise = null;
 let polling = null;
+let pairExpiry = null;
+const pairCode = document.getElementById('pair-code');
+const pairStatus = document.getElementById('pair-status');
+const pairServer = document.getElementById('pair-server');
+const pairDialog = document.getElementById('pair-dialog');
+const pairCopy = document.getElementById('pair-copy');
+const pairCreate = document.getElementById('pair-create');
+let pairRevision = 0;
+document.getElementById('pair-open').addEventListener('click', () => pairDialog.showModal());
+document.getElementById('pair-close').addEventListener('click', () => pairDialog.close());
+pairDialog.addEventListener('close', () => {
+  pairRevision++; clearTimeout(pairExpiry); pairCode.value = ''; pairCopy.disabled = true;
+  pairStatus.textContent = ''; pairStatus.classList.remove('is-error'); pairCreate.textContent = 'Tạo mã';
+});
+pairServer.value = location.origin;
+document.getElementById('pair-create').addEventListener('click', async event => {
+  event.target.disabled = true;
+  pairCreate.textContent = 'Đang tạo…'; pairStatus.classList.remove('is-error');
+  const revision = pairRevision;
+  const token = state.token;
+  try {
+    const result = await api('/api/admin/enrollment', { method: 'POST', body: JSON.stringify({ serverUrl: pairServer.value.trim() }) });
+    if (token !== state.token || revision !== pairRevision || !pairDialog.open) return;
+    clearTimeout(pairExpiry);
+    pairCode.value = result.code;
+    pairCopy.disabled = false;
+    pairStatus.textContent = 'Hết hạn lúc ' + new Date(result.expiresAt).toLocaleTimeString('vi-VN');
+    pairExpiry = setTimeout(() => { pairCode.value = ''; pairCopy.disabled = true; pairStatus.textContent = 'Mã đã hết hạn. Tạo mã mới để ghép nối.'; }, Math.max(0, Date.parse(result.expiresAt) - Date.now()));
+  } catch { if (revision === pairRevision && token === state.token) { pairStatus.textContent = 'Không tạo được mã. Kiểm tra địa chỉ HTTPS hoặc thử lại sau.'; pairStatus.classList.add('is-error'); } }
+  finally { event.target.disabled = false; pairCreate.textContent = pairCode.value ? 'Tạo mã khác' : 'Tạo mã'; }
+});
+document.getElementById('pair-copy').addEventListener('click', async () => {
+  if (!pairCode.value) return;
+  pairStatus.classList.remove('is-error');
+  try { await navigator.clipboard.writeText(pairCode.value); pairStatus.textContent = 'Đã sao chép; mã chỉ có hiệu lực 5 phút từ lúc tạo.'; }
+  catch { pairCode.select(); pairStatus.textContent = 'Nhấn Ctrl+C để sao chép mã đã chọn.'; }
+});
 const errorMessages = {
   INVALID_CREDENTIALS: 'Tài khoản hoặc mật khẩu không đúng.',
   ADMIN_AUTH_FAILED: 'Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại.',
@@ -53,6 +90,8 @@ function startPolling() {
 }
 
 function logout(message = '') {
+  if (pairDialog.open) pairDialog.close();
+  clearTimeout(pairExpiry); pairCode.value = ''; pairStatus.textContent = '';
   state.token = null;
   state.revision++;
   loadPromise = null;

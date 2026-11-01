@@ -68,7 +68,9 @@ const login = await request('/api/admin/login', 'POST', { username: 'admin', pas
 const admin = { authorization: `Bearer ${login.token}` };
 for (const byte of [1, 2]) {
   const deviceId = randomUUID(), secret = Buffer.alloc(48, byte).toString('base64');
-  await request('/api/client/register', 'POST', { deviceId, secret, name: `Client ${byte}`, printers: [] });
+  const invite = await request('/api/admin/enrollment', 'POST', { serverUrl: base }, admin);
+  const code = JSON.parse(Buffer.from(invite.code.slice(8), 'base64url').toString());
+  await request('/' + code.endpoint, 'POST', { deviceId, secret, name: `Client ${byte}`, printers: [] }, { 'x-enrollment-key': code.key });
   await request(`/api/admin/clients/${deviceId}/approve`, 'POST', { room: 'one' }, admin);
   await request('/api/client/tunnel', 'PUT', { publicKey: Buffer.alloc(32, byte).toString('base64') },
     { 'x-device-id': deviceId, 'x-device-secret': secret });

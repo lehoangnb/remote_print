@@ -56,8 +56,17 @@ internal static partial class Program
             return Results.Json(state);
         });
         api.MapGet("/api/client/status", () => Results.Json(state));
+        const string inviteId = "11111111111111111111111111111111";
+        var inviteKey = new string('k', 43);
+        var paired = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        api.MapPost("/api/client/enroll/" + inviteId, (HttpRequest request) =>
+        {
+            paired.TrySetResult(request.Headers["x-enrollment-key"] == inviteKey);
+            return Results.Json(state);
+        });
+        var peerId = Guid.NewGuid().ToString();
         api.MapGet("/api/client/peers", () => Results.Json(new[] { new PeerClient {
-            Id = Guid.NewGuid().ToString(), Name = "Office", LastSeenAt = DateTime.UtcNow,
+            Id = peerId, Name = "Office", LastSeenAt = DateTime.UtcNow,
             NativePrinting = true, Printers = ["Office Printer"], WindowsPrinterShares = new() { ["Office Printer"] = "Office" }
         } }));
         api.MapGet("/api/client/tunnel", () => Results.Json(new { error = "TUNNEL_NOT_CONFIGURED" }, statusCode: 503));
@@ -86,10 +95,22 @@ internal static partial class Program
             ServiceSnapshot? snapshot = null;
             await WaitMeshAsync(async () => { snapshot = await client.CallAsync(new("status")); return snapshot.State.Status == "approved" && snapshot.Peers.Count == 1; });
             Require(snapshot!.Peers.Single().NativePrinting, "IPC discovers native printer relay support in the approved Room");
+            var invitationJson = JsonSerializer.Serialize(new { version = 1, serverUrl = address,
+                endpoint = "api/client/enroll/" + inviteId, key = inviteKey, expiresAt = DateTime.UtcNow.AddMinutes(5) });
+            var invitationCode = "RPPAIR1." + Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(invitationJson)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+            var pairSnapshot = await client.CallAsync(new("configure", new DeviceSettings("Test PC", invitationCode, [])));
+            Require(pairSnapshot.Settings.ServerUrl == address && !JsonSerializer.Serialize(pairSnapshot).Contains(inviteKey),
+                "IPC normalizes invitation into the server URL without exposing the temporary key");
+            Require(await paired.Task.WaitAsync(TimeSpan.FromSeconds(10)), "Client enrolls through the temporary endpoint with its temporary key");
+            await WaitMeshAsync(() => {
+                using var saved = JsonDocument.Parse(File.ReadAllText(store.ConfigPath));
+                return Task.FromResult(saved.RootElement.GetProperty("EnrollmentKey").GetString()!.Length == 0);
+            });
+            Require(true, "Temporary enrollment key is removed after successful registration");
             var localPrinter = snapshot.Printers.FirstOrDefault();
             if (localPrinter is not null)
             {
-                var before = snapshot;
+                var before = await client.CallAsync(new("status"));
                 var configured = await client.CallAsync(new("configure", new DeviceSettings("Test PC", address, [localPrinter])));
                 Require(configured.Connection == before.Connection && configured.State.Status == before.State.Status &&
                     configured.Peers.Select(p => p.Id).SequenceEqual(before.Peers.Select(p => p.Id)),

@@ -70,6 +70,11 @@ internal static partial class Program
             async Task<(ClientConfig Config, TunnelInfo Info)> Enroll(string room)
             {
                 var config = new ClientConfig { ServerUrl = url };
+                using var invitation = await http.PostAsJsonAsync("/api/admin/enrollment", new { serverUrl = url });
+                invitation.EnsureSuccessStatusCode();
+                using var invitationJson = JsonDocument.Parse(await invitation.Content.ReadAsStringAsync());
+                var code = EnrollmentCode.Parse(invitationJson.RootElement.GetProperty("code").GetString()!)!;
+                config.EnrollmentEndpoint = code.Endpoint; config.EnrollmentKey = code.Key;
                 using var api = new RemotePrintApi(config);
                 await api.RegisterAsync();
                 using var approved = await http.PostAsJsonAsync($"/api/admin/clients/{config.DeviceId}/approve", new { room });

@@ -518,6 +518,7 @@ public sealed class MainForm : Form
                 new DeviceSettings(settings.ComputerName, settings.ServerUrl, SharedPrinterSelection())));
             if (version == _printerDraftVersion) _printerDraftDirty = false;
             ApplySnapshot(updated);
+            _serverUrl = updated.Settings.ServerUrl;
         }
         catch (Exception ex)
         {
@@ -536,6 +537,7 @@ public sealed class MainForm : Form
         {
             var updated = await _service.CallAsync(new("configure",
                 new DeviceSettings(_deviceName, _serverUrl, SharedPrinterSelection())));
+            _serverUrl = updated.Settings.ServerUrl;
             if (version == _printerDraftVersion) _printerDraftDirty = false;
             ApplySnapshot(updated);
         }

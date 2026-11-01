@@ -102,6 +102,8 @@ public sealed class ClientEngine : IDisposable, INativeRelayHost
             if (!_registered)
             {
                 _state = await _api.RegisterAsync(_windowsPrinterShares, _advertisedPrinters);
+                if (_config.EnrollmentKey.Length > 0)
+                { _config.EnrollmentKey = ""; _config.EnrollmentEndpoint = ""; _store.Save(_config); }
                 _registered = true;
                 Log("Đã kết nối server.");
             }
@@ -263,15 +265,17 @@ public sealed class ClientEngine : IDisposable, INativeRelayHost
             {
                 case "configure":
                     var settings = request.Settings ?? throw new InvalidOperationException("Thiếu cấu hình.");
+                    var invitation = EnrollmentCode.Parse(settings.ServerUrl.Trim());
+                    var serverInput = invitation?.ServerUrl ?? settings.ServerUrl;
                     if (settings.ComputerName.Trim().Length is < 2 or > 80) throw new InvalidOperationException("Tên máy cần từ 2 đến 80 ký tự.");
-                    if (!Uri.TryCreate(settings.ServerUrl.Trim().TrimEnd('/'), UriKind.Absolute, out var uri)
+                    if (!Uri.TryCreate(serverInput.Trim().TrimEnd('/'), UriKind.Absolute, out var uri)
                         || uri.Scheme is not ("http" or "https")) throw new InvalidOperationException("Địa chỉ server không hợp lệ.");
                     var available = PrinterService.GetServicePrinters();
                     if (settings.SharedPrinters.Any(name => name.Equals("Remote Print", StringComparison.OrdinalIgnoreCase)
                         || (!available.Contains(name, StringComparer.OrdinalIgnoreCase)
                             && !_config.SharedPrinters.Contains(name, StringComparer.OrdinalIgnoreCase))))
                         throw new InvalidOperationException("Một máy in đã chọn không khả dụng cho Windows Service.");
-                    var serverChanged = !string.Equals(_config.ServerUrl, uri.ToString().TrimEnd('/'), StringComparison.OrdinalIgnoreCase);
+                    var serverChanged = !string.Equals(_config.ServerUrl, uri.ToString().TrimEnd('/'), StringComparison.Ordinal);
                     if (serverChanged)
                     {
                         await StopMeshAsync();
@@ -279,8 +283,15 @@ public sealed class ClientEngine : IDisposable, INativeRelayHost
                         await _tunnel.ResetIdentityAsync(ct);
                         SynchronizeWindowsShares(false);
                     }
+                    if (serverChanged)
+                    {
+                        _config.DeviceId = Guid.NewGuid().ToString();
+                        _config.DeviceSecret = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(48));
+                    }
                     _config.ComputerName = settings.ComputerName.Trim();
                     _config.ServerUrl = uri.ToString().TrimEnd('/');
+                    if (invitation is not null || serverChanged)
+                    { _config.EnrollmentEndpoint = invitation?.Endpoint ?? ""; _config.EnrollmentKey = invitation?.Key ?? ""; }
                     _config.SharedPrinters = settings.SharedPrinters.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
                     _lastScan = DateTime.MinValue;
                     _store.Save(_config);

@@ -9,7 +9,7 @@ namespace RemotePrint.Client;
 public sealed class DeviceConfigForm : Form
 {
     private readonly TextBox _name = new() { MaxLength = 80 };
-    private readonly TextBox _url = new TextBox().SetTip("https://print.example.com hoặc http://192.168.1.10:7443");
+    private readonly TextBox _url = new TextBox { MaxLength = 4096 }.SetTip("Dán mã RPPAIR1. do admin tạo (có hiệu lực 5 phút). Máy đã ghép nối dùng địa chỉ server hiện có.");
     public Button SaveButton { get; } = MainForm.NewButton("Lưu và kết nối");
     public Button SkipButton { get; } = MainForm.NewButton("Bỏ qua");
 
@@ -51,7 +51,7 @@ public sealed class DeviceConfigForm : Form
         grid.Controls.Add(_url, 1, 1);
         grid.Controls.Add(new Label
         {
-            Text = "Room do quản trị viên gán trên server.", AutoSize = false, Height = 20,
+            Text = "Máy mới: dán mã ghép nối 5 phút từ admin.", AutoSize = false, Height = 20,
             Dock = DockStyle.Fill, ForeColor = SystemColors.GrayText, Margin = new Padding(0, 0, 0, 6)
         }, 1, 2);
         grid.Controls.Add(BuildButtons(), 1, 3);

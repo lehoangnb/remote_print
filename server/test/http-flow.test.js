@@ -49,22 +49,30 @@ test('Windows share discovery, Room approval/revocation and removed document API
   assert.match(securePage.headers.get('content-security-policy'), /upgrade-insecure-requests/);
   assert.equal(securePage.headers.get('cross-origin-opener-policy'), 'same-origin');
   assert.ok(securePage.headers.get('strict-transport-security'));
+  const login = await json('/api/admin/login', {
+    method: 'POST', body: JSON.stringify({ username: 'admin', password: 'test-admin-password-123' })
+  });
+  assert.equal(login.response.status, 200);
+  const admin = { authorization: 'Bearer ' + login.body.token };
+  assert.equal((await json('/api/client/register', { method: 'POST', body: JSON.stringify(a) })).response.status, 403);
   for (const client of [a, b, c]) {
-    const result = await json('/api/client/register', { method: 'POST', body: JSON.stringify(client) });
+    const invite = await json('/api/admin/enrollment', { method: 'POST', headers: admin, body: JSON.stringify({serverUrl: base}) });
+    assert.equal(invite.response.status, 200);
+    const code = JSON.parse(Buffer.from(invite.body.code.slice(8), 'base64url').toString());
+    const result = await json('/' + code.endpoint, { method: 'POST', headers: {'x-enrollment-key':code.key}, body: JSON.stringify(client) });
+    assert.equal((await json('/' + code.endpoint, { method: 'POST', headers: {'x-enrollment-key':code.key}, body: JSON.stringify(device('Fake clone')) })).response.status, 404);
+    assert.equal((await json('/' + code.endpoint, { method: 'POST', headers: {'x-enrollment-key':code.key}, body: JSON.stringify(client) })).response.status, 200);
     assert.equal(result.response.status, 200);
     assert.equal(result.body.status, 'pending');
     assert.equal(result.body.publicKey, undefined);
     assert.equal(result.body.printerCapabilities, undefined);
   }
   assert.equal((await json('/api/client/peers', { headers: headers(a) })).response.status, 403);
+  assert.equal((await json('/api/client/register', { method: 'POST', body: JSON.stringify(a) })).response.status, 200);
+  assert.equal((await json('/api/client/register', { method: 'POST', body: JSON.stringify({...a, secret:'wrong-secret-with-more-than-32-characters'}) })).response.status, 401);
   assert.equal((await json('/api/client/status', {
     headers: { ...headers(a), 'x-device-secret': 'wrong-secret' }
   })).response.status, 401);
-  const login = await json('/api/admin/login', {
-    method: 'POST', body: JSON.stringify({ username: 'admin', password: 'test-admin-password-123' })
-  });
-  assert.equal(login.response.status, 200);
-  const admin = { authorization: 'Bearer ' + login.body.token };
   for (const [client, room] of [[a, 'one'], [b, 'ONE'], [c, 'two']]) {
     assert.equal((await json(`/api/admin/clients/${client.deviceId}/approve`, {
       method: 'POST', headers: admin, body: JSON.stringify({ room })

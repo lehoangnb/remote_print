@@ -13,7 +13,7 @@ public sealed class RemotePrintApi : IDisposable
     public RemotePrintApi(ClientConfig config)
     {
         _config = config;
-        _http = new HttpClient { BaseAddress = new Uri(config.ServerUrl + "/"), Timeout = TimeSpan.FromSeconds(90) };
+        _http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { BaseAddress = new Uri(config.ServerUrl + "/"), Timeout = TimeSpan.FromSeconds(90) };
         _http.DefaultRequestHeaders.Add("x-device-id", config.DeviceId);
         _http.DefaultRequestHeaders.Add("x-device-secret", config.DeviceSecret);
     }
@@ -21,11 +21,21 @@ public sealed class RemotePrintApi : IDisposable
     public async Task<ClientState> RegisterAsync(Dictionary<string, string>? windowsPrinterShares = null,
         IReadOnlyList<string>? advertisedPrinters = null)
     {
-        using var response = await _http.PostAsJsonAsync("api/client/register", new
+        var body = new
         {
             deviceId = _config.DeviceId, secret = _config.DeviceSecret, name = _config.ComputerName,
             printers = advertisedPrinters ?? _config.SharedPrinters, windowsPrinterShares = windowsPrinterShares ?? new(), nativePrinting = true
-        });
+        };
+        using var request = new HttpRequestMessage(HttpMethod.Post, string.IsNullOrEmpty(_config.EnrollmentKey) ? "api/client/register" : _config.EnrollmentEndpoint)
+        { Content = JsonContent.Create(body) };
+        if (!string.IsNullOrEmpty(_config.EnrollmentKey)) request.Headers.Add("x-enrollment-key", _config.EnrollmentKey);
+        using var response = await _http.SendAsync(request);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound && !string.IsNullOrEmpty(_config.EnrollmentKey))
+        {
+            // A successful enrollment response may have been lost before expiry.
+            using var retry = await _http.PostAsJsonAsync("api/client/register", body);
+            if (retry.IsSuccessStatusCode) return await ReadAsync<ClientState>(retry);
+        }
         return await ReadAsync<ClientState>(response);
     }
 
@@ -79,6 +89,8 @@ public sealed class RemotePrintApi : IDisposable
         {
             using var error = JsonDocument.Parse(body);
             var code = error.RootElement.GetProperty("error").GetString();
+            if (code == "ENROLLMENT_REQUIRED") throw new InvalidOperationException("Máy mới cần mã ghép nối 5 phút do admin tạo. Dán mã vào ô cấu hình server.");
+            if (code == "ENROLLMENT_INVALID_OR_EXPIRED") throw new InvalidOperationException("Mã ghép nối đã hết hạn hoặc đã dùng cho máy khác. Yêu cầu admin tạo mã mới.");
             throw new InvalidOperationException($"Server từ chối: {code}");
         }
         catch (JsonException) { throw new HttpRequestException($"Server trả về HTTP {(int)response.StatusCode}: {body}"); }
