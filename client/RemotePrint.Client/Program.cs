@@ -7,6 +7,15 @@ namespace RemotePrint.Client;
 
 internal static class Program
 {
+    internal static readonly Icon AppIcon = LoadAppIcon();
+
+    private static Icon LoadAppIcon()
+    {
+        using var stream = typeof(Program).Assembly.GetManifestResourceStream("RemotePrint.Client.remote-print.ico")
+            ?? throw new InvalidOperationException("Remote Print icon resource is missing.");
+        return new Icon(stream);
+    }
+
     [STAThread]
     private static int Main(string[] args)
     {
@@ -34,7 +43,7 @@ internal static class Program
         using var context = new ApplicationContext();
         using var tray = new NotifyIcon
         {
-            Icon = SystemIcons.Application,
+            Icon = AppIcon,
             Text = "Remote Print · quản lý máy in",
             Visible = true
         };

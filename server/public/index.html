@@ -5,13 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>Remote Print · Quản trị</title>
+  <link rel="icon" type="image/png" href="/remote-print-logo.png">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
   <a class="skip-link" href="#main-content">Đến nội dung chính</a>
   <section id="login" class="login-page" aria-labelledby="login-title">
     <form id="login-form" class="login-card">
-      <div class="login-brand"><span class="brand-mark">RP</span><strong>Remote Print</strong></div>
+      <div class="login-brand"><img class="brand-mark" src="/remote-print-logo.png" alt=""><strong>Remote Print</strong></div>
       <h2 id="login-title">Đăng nhập quản trị</h2>
       <label for="username">Tài khoản</label>
       <input id="username" name="username" autocomplete="username" required value="admin">
@@ -25,7 +26,7 @@
   <div id="dashboard" class="app-shell" hidden>
     <main id="main-content" class="workspace">
       <header id="overview" class="page-header">
-        <div class="header-identity"><span class="brand-mark">RP</span><h1>Remote Print <span>Quản trị</span></h1></div>
+        <div class="header-identity"><img class="brand-mark" src="/remote-print-logo.png" alt=""><h1>Remote Print <span>Quản trị</span></h1></div>
         <div class="header-actions">
           <label class="auto-refresh"><input id="auto-refresh" type="checkbox" checked>Tự động</label>
           <button id="refresh" type="button" class="button button-secondary"><svg class="icon" aria-hidden="true"><use href="/icons.svg#refresh"/></svg>Làm mới</button>

@@ -68,6 +68,7 @@ public sealed class MainForm : Form
 
     public MainForm(string? pipeName = null, bool headless = false)
     {
+        Icon = Program.AppIcon;
         _service = new ServiceClient(pipeName);
         _headless = headless;
         BuildMenu();

@@ -8,8 +8,10 @@
     <UseWindowsForms>true</UseWindowsForms>
     <StartupObject>RemotePrint.Client.Program</StartupObject>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationIcon>remote-print.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
+    <EmbeddedResource Include="remote-print.ico" />
     <ProjectReference Include="../RemotePrint.Core/RemotePrint.Core.csproj" />
     <Compile Remove="Models.cs;RemotePrintApi.cs;PrinterService.cs;ConfigService.cs" />
   </ItemGroup>
