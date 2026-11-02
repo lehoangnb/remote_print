@@ -10,13 +10,49 @@ namespace RemotePrint.Service;
 public static class NativePrinterSetup
 {
     private static string DriverEnvironment => System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture == System.Runtime.InteropServices.Architecture.Arm64 ? "Windows ARM64" : "Windows x64";
+    internal const string PrepareNameScript = """
+        $printers=@(Get-Printer);
+        $owned=@($printers | Where-Object PortName -eq $a.PortName);
+        if($owned.Count -gt 1){throw 'Multiple printers use the relay port'};
+        $name=$a.Label; $n=2;
+        while(@($printers | Where-Object { $_.Name -eq $name -and $_.PortName -ne $a.PortName }).Count -gt 0){$name=$a.Label+'_'+$n; $n++};
+        if($owned.Count -eq 1 -and $owned[0].Name -ne $name){
+          $p=Get-CimInstance Win32_TCPIPPrinterPort | Where-Object Name -eq $a.PortName | Select-Object -First 1;
+          if(!$p -or $p.HostAddress -ne '127.0.0.1' -or $p.Protocol -ne 2 -or $p.Queue -ne $a.QueueId){throw 'Port name belongs to another configuration'};
+          if(@(Get-PrintJob -PrinterName $owned[0].Name).Count -gt 0){throw 'Finish or cancel pending print jobs before renaming the printer'};
+          Rename-Printer -Name $owned[0].Name -NewName $name;
+        };
+        $name
+        """;
+    public static Task<string> PrepareNameAsync(string label, string portName, CancellationToken ct) =>
+        PowerShellAsync(PrepareNameScript, new { Label = label, PortName = portName, QueueId = portName[3..] }, ct);
+
+    internal const string RemoveScript = """
+            $portName='RP_'+$a.Id;
+            $q=Get-Printer | Where-Object Name -eq $a.Queue | Select-Object -First 1;
+            if(!$q -and @(Get-Printer | Where-Object PortName -eq $portName).Count -gt 0){throw 'Queue belongs to another configuration'};
+            $p=Get-CimInstance Win32_TCPIPPrinterPort | Where-Object Name -eq $portName | Select-Object -First 1;
+            if($p -and ($p.HostAddress -ne '127.0.0.1' -or $p.Protocol -ne 2 -or $p.Queue -ne $a.Id)){throw 'Port name belongs to another configuration'};
+            if($q){
+              if(!$p -or $q.PortName -ne $portName){throw 'Queue belongs to another configuration'};
+              if(@(Get-PrintJob -PrinterName $a.Queue).Count -gt 0){throw 'Finish or cancel pending print jobs before removing the printer'};
+              Remove-Printer -Name $a.Queue;
+            };
+            if($p -and @(Get-Printer | Where-Object PortName -eq $portName).Count -eq 0){Remove-PrinterPort -Name $portName};
+            'OK'
+            """;
+    public static async Task RemoveAsync(NativeQueue queue, CancellationToken ct)
+    {
+        await PowerShellAsync(RemoveScript, queue, ct);
+    }
     public static async Task<string> PowerShellAsync(string script, object arguments, CancellationToken ct)
     {
         var start = new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "System32", "WindowsPowerShell", "v1.0", "powershell.exe"))
         { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
         start.Environment["REMOTEPRINT_ARGUMENTS"] = JsonSerializer.Serialize(arguments);
         foreach (var argument in new[] { "-NoProfile", "-NonInteractive", "-EncodedCommand", Convert.ToBase64String(Encoding.Unicode.GetBytes(
-            "$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[Text.Encoding]::UTF8; $a=$env:REMOTEPRINT_ARGUMENTS|ConvertFrom-Json; " + script)) }) start.ArgumentList.Add(argument);
+            "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; [Console]::OutputEncoding=[Text.Encoding]::UTF8; $a=$env:REMOTEPRINT_ARGUMENTS|ConvertFrom-Json; try { & { " + script +
+            " } } catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1 }")) }) start.ArgumentList.Add(argument);
         using var process = Process.Start(start) ?? throw new IOException("Cannot run printer setup");
         var output = process.StandardOutput.ReadToEndAsync(ct); var error = process.StandardError.ReadToEndAsync(ct);
         try { await process.WaitForExitAsync(ct); }

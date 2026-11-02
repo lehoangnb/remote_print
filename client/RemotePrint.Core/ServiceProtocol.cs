@@ -11,9 +11,12 @@ public sealed record DeviceSettings(string ComputerName, string ServerUrl, List<
 public sealed record ActivityEntry(DateTime At, string Message);
 public sealed record TestPrintFile(string Id, DateTime ReceivedAtUtc, long Bytes, string Sha256, string Format = "txt", bool HasContent = true);
 public sealed record TestPrintChunk(long Offset, byte[] Data, bool End);
+public sealed record InstalledPrinter(string Id, string Name);
 public sealed class ServiceSnapshot
 {
     public bool NativePrinting { get; set; }
+    public bool PrinterRemoval { get; set; }
+    public List<InstalledPrinter> InstalledPrinters { get; set; } = [];
     public bool TestPrinting { get; set; }
     public bool TestFileAccess { get; set; }
     public bool TestPdfPrinting { get; set; }
@@ -29,7 +32,7 @@ public sealed class ServiceSnapshot
     public DateTime UpdatedAt { get; set; }
 }
 public sealed record ServiceRequest(string Action, DeviceSettings? Settings = null, string? PeerId = null, string? Printer = null,
-    string? FileId = null, long Offset = 0);
+    string? FileId = null, long Offset = 0, string? QueueId = null);
 public sealed record ServiceReply(bool Success, ServiceSnapshot? Snapshot = null, string? Error = null,
     List<TestPrintFile>? TestFiles = null, TestPrintChunk? TestChunk = null);
 

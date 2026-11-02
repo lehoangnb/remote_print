@@ -34,7 +34,7 @@ chuyển gói WireGuard mã hóa, không có khóa riêng hoặc bản tài li�
 3. Tích chọn **Remote Print Test** trong **Máy in chia sẻ**. Hai client cần
    online, được duyệt vào cùng Room và tunnel đã kết nối.
 4. Trên máy gửi, chọn máy nhận và **Remote Print Test**, bấm **Kết nối máy in**,
-   rồi **In thử**. Cũng có thể in tài liệu Word từ ứng dụng vào queue `RemotePrint ...`
+   rồi **In thử**. Cũng có thể in tài liệu Word từ ứng dụng vào queue `TênClient_Remote Print Test`
    vừa tạo. Để thử chiều ngược lại, cài và chia sẻ máy in ảo trên máy còn lại.
 5. Kiểm tra **Hoạt động gần đây** trên máy nhận: dòng **Máy in ảo đã nhận:**
    xác nhận đã lưu dữ liệu. Thông báo gửi thành công trên máy gửi mới xác nhận
@@ -121,8 +121,18 @@ chữ ký và cài driver. Driver phải cùng kiến trúc máy gửi; app khô
 khác kiến trúc từ Internet. Nếu nhà sản xuất có thành phần ngoài gói INF hoặc
 phụ thuộc giao tiếp hai chiều, có thể cần bộ cài OEM và kiểm thử tương thích.
 
-Queue do app tạo có tên `RemotePrint ... [id]`, port `RP_...`; không được chọn
-chia sẻ lại để tránh vòng lặp. Windows share do app cũ tạo được gỡ; share sẵn có
+Queue do app tạo có tên `TênClient_Model máy in`, ví dụ `MayKeToan_Canon LBP2900`,
+port `RP_...`; nếu tên trùng máy in khác thì thêm `_2`, `_3`. Bấm **Kết nối máy in**
+lại để đổi queue tên cũ sang tên gọn; cần xử lý job Windows đang chờ trước khi đổi.
+Queue relay không được chọn chia sẻ lại để tránh vòng lặp.
+
+Chọn **Cài đặt > Máy in đã cài…**, chọn máy in rồi bấm **Xóa máy in** để gỡ queue
+đã kết nối qua app trên máy này, kể cả khi client bên kia offline. Service gỡ queue,
+cổng relay không còn dùng và mapping; giữ driver dùng chung và file đã nhận.
+Nếu còn job Windows, RAW đang chờ chuyển hoặc kết quả cần kiểm tra thì xử lý trước
+khi xóa. Cập nhật cả giao diện và service để có mục này.
+
+Windows share do app cũ tạo được gỡ; share sẵn có
 của người dùng được giữ nguyên. Kết nối UNC đã cài trước đây không tự được chuyển
 đổi: kết nối máy in lại từ app để tạo queue driver/RAW mới. Nếu máy đã chạy một LPD server trên loopback 515,
 cần giải quyết xung đột cổng trước khi khởi động service mới.
@@ -197,6 +207,7 @@ npm test
 cd ..
 dotnet build client/RemotePrint.Checks/RemotePrint.Checks.csproj -c Release -o artifacts/checks
 dotnet artifacts/checks/RemotePrint.Checks.dll --native-relay-check "$PWD"
+dotnet artifacts/checks/RemotePrint.Checks.dll --installed-printer-check "$PWD"
 dotnet artifacts/checks/RemotePrint.Checks.dll --test-printer-check "$PWD"
 dotnet artifacts/checks/RemotePrint.Checks.dll --autosave-check
 dotnet artifacts/checks/RemotePrint.Checks.dll --mesh-check "$PWD"

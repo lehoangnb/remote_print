@@ -282,6 +282,11 @@ public sealed class ClientEngine : IDisposable, INativeRelayHost
             await PrintRelay.InstallAsync(request.PeerId ?? "", request.Printer ?? "", ct);
             Publish(); return Snapshot;
         }
+        if (request.Action == "remove-printer")
+        {
+            await PrintRelay.RemoveAsync(request.QueueId ?? "", ct);
+            Publish(); return Snapshot;
+        }
         if (request.Action == "print-test")
         {
             await PrintRelay.PrintTestAsync(request.PeerId ?? "", request.Printer ?? "", ct);
@@ -371,6 +376,8 @@ public sealed class ClientEngine : IDisposable, INativeRelayHost
         var snapshot = new ServiceSnapshot
         {
             NativePrinting = true,
+            PrinterRemoval = true,
+            InstalledPrinters = PrintRelay.InstalledPrinters,
             TestPrinting = true,
             TestFileAccess = true,
             TestPdfPrinting = true,

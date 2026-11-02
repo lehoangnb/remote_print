@@ -29,6 +29,7 @@ internal static partial class Program
         {
             case "--mesh-check": RunMeshChecksAsync(root).GetAwaiter().GetResult(); return;
             case "--native-relay-check": CheckNativeRelayAsync(root).GetAwaiter().GetResult(); return;
+            case "--installed-printer-check": CheckInstalledPrintersAsync(root).GetAwaiter().GetResult(); return;
             case "--test-printer-check": CheckTestPrinterAsync(root).GetAwaiter().GetResult(); return;
             case "--pdf-windows-check": CheckPdfWindowsAsync(root, args.Length > 2 ? args[2] : null).GetAwaiter().GetResult(); return;
             case "--pdf-word-windows-check": CheckPdfWindowsAsync(root, null, wordFixture: true).GetAwaiter().GetResult(); return;
@@ -98,6 +99,9 @@ internal static partial class Program
             ServiceSnapshot? snapshot = null;
             await WaitMeshAsync(async () => { snapshot = await client.CallAsync(new("status")); return snapshot.State.Status == "approved" && snapshot.Peers.Count == 1; });
             Require(snapshot!.Peers.Single().NativePrinting, "IPC discovers native printer relay support in the approved Room");
+            Require(snapshot.PrinterRemoval && snapshot.InstalledPrinters.Count == 0, "IPC advertises printer removal and the installed queue list");
+            try { await client.CallAsync(new("remove-printer", QueueId: "unknown")); throw new Exception("Unknown queue accepted through IPC"); }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("không còn")) { Require(true, "IPC removal rejects queues not managed by this service"); }
             Require(snapshot.TestFileAccess, "IPC advertises the installed service's test file reader capability");
             await CheckTestFilePipeAsync(client, directory);
             var invitationJson = JsonSerializer.Serialize(new { version = 1, serverUrl = address,
@@ -160,6 +164,9 @@ internal static partial class Program
         var apply = typeof(MainForm).GetMethod("ApplySnapshot", BindingFlags.Instance | BindingFlags.NonPublic)!;
         void Apply(ServiceSnapshot state) => apply.Invoke(manager, [state]);
         Apply(snapshot);
+        Require(!manager.InstalledPrintersItem.Enabled, "Older services cannot receive unsupported printer removal commands");
+        snapshot.PrinterRemoval = true; Apply(snapshot);
+        Require(manager.InstalledPrintersItem.Enabled, "Installed printers can be managed without selecting an online peer");
         Require(!manager.ConnectPrinterButton.Enabled, "Connection requires an explicit peer selection");
         manager.PeersGrid.SelectedIndex = 0;
         manager.PerformLayout();
@@ -220,6 +227,18 @@ internal static partial class Program
         var languageEvents = 0;
         manager.LanguageChanged += (_, _) => languageEvents++;
         manager.ApplyLanguage("en");
+        Require(manager.InstalledPrintersItem.Text == "Installed printers…", "Installed printer menu switches to English");
+        using (var installed = new InstalledPrintersForm(new ServiceClient("RemotePrint.Unused.Checks")))
+        {
+            installed.ApplySnapshot(new ServiceSnapshot { InstalledPrinters = [new("id", "Office_Canon")] });
+            Require(!installed.RemoveButton.Enabled, "Printer removal requires an explicit selection");
+            installed.Printers.SelectedIndex = 0;
+            Require(installed.RemoveButton.Enabled, "Installed printers remain removable with no online peers or tunnel");
+            Require(TextRenderer.MeasureText(installed.RemoveButton.Text, installed.RemoveButton.Font).Width + 8 <= installed.RemoveButton.Width,
+                "English remove printer button fits");
+            installed.ApplySnapshot(new ServiceSnapshot());
+            Require(!installed.RemoveButton.Enabled && installed.Printers.Items.Count == 0, "Removing the last printer clears the list and disables removal");
+        }
         Require(manager.ConnectPrinterButton.Text == "Connect printer" && manager.ScanPrintersButton.Text == "Rescan",
             "Switching to English updates the open window");
         Require(manager.PrintTestButton.Text == "Print test", "Virtual printer test button switches to English");

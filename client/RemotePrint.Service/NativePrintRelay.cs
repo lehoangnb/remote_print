@@ -35,6 +35,48 @@ public sealed class NativePrintRelay(INativeRelayHost engine, Func<string, strin
     private TcpListener? _remote;
     public int ListenPort => ((IPEndPoint)_remote!.LocalEndpoint).Port;
     public string TestOutputDirectory => Path.Combine(Root, "TestPrints");
+    public List<InstalledPrinter> InstalledPrinters
+    {
+        get { lock (_queues) return _queues.Values.Select(q => new InstalledPrinter(q.Id, q.Queue)).OrderBy(q => q.Name).ToList(); }
+    }
+
+    public static string QueueLabel(string client, string printer)
+    {
+        static string Clean(string value) => new string(value.Trim().Select(c => c is '\\' or '/' or ':' or '"' or ',' || char.IsControl(c) ? '_' : c).ToArray());
+        var label = Clean(client) + "_" + Clean(printer);
+        return label[..Math.Min(180, label.Length)];
+    }
+
+    public async Task RemoveAsync(string id, CancellationToken ct)
+    {
+        await _install.WaitAsync(ct);
+        try
+        {
+            NativeQueue queue;
+            lock (_queues) queue = _queues.TryGetValue(id, out var found) ? found : throw new InvalidOperationException("Máy in đã cài không còn trong danh sách.");
+            await _localCommit.WaitAsync(ct);
+            try
+            {
+                // Keep durable or uncertain relay jobs recoverable, even with the peer offline.
+                foreach (var file in Directory.GetFiles(Root, "pending-*.json*"))
+                    if (JsonSerializer.Deserialize<NativePending>(File.ReadAllText(file))?.QueueId == id)
+                        throw new InvalidOperationException("Máy in còn lệnh đang chờ chuyển hoặc cần kiểm tra. Xử lý lệnh in trước khi xóa.");
+                foreach (var file in Directory.GetFiles(Root, "local-*.json"))
+                {
+                    var pending = JsonSerializer.Deserialize<NativePending>(File.ReadAllText(file))!;
+                    if (pending.QueueId == id && File.Exists(Path.Combine(Root, pending.Id + ".raw")) &&
+                        !File.Exists(Path.Combine(Root, "delivered-" + pending.Id + ".json")))
+                        throw new InvalidOperationException("Máy in còn lệnh đang chờ chuyển hoặc cần kiểm tra. Xử lý lệnh in trước khi xóa.");
+                }
+                await NativePrinterSetup.RemoveAsync(queue, ct);
+                File.Delete(Path.Combine(Root, "queue-" + id + ".json"));
+                lock (_queues) _queues.Remove(id);
+            }
+            finally { _localCommit.Release(); }
+            engine.NativeLog("Đã xóa máy in đã cài: " + queue.Queue);
+        }
+        finally { _install.Release(); }
+    }
     public async Task ClearTestFilesAsync(CancellationToken ct)
     {
         await _localCommit.WaitAsync(ct);
@@ -208,17 +250,11 @@ public sealed class NativePrintRelay(INativeRelayHost engine, Func<string, strin
                 await NativePrintProtocol.ReceiveAsync(stream, file, reply.Driver.Bytes, reply.Driver.Sha256,
                     () => engine.NativePeerAllowed(peerId, printer), ct);
             var id = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(peerId + ":" + printer)))[..16];
-            NativeQueue? queue; lock (_queues) _queues.TryGetValue(id, out queue);
-            if (queue is null)
-            {
-                const int port = 515;
-                var label = $"{peer.Name[..Math.Min(30, peer.Name.Length)]} {printer[..Math.Min(60, printer.Length)]}";
-                label = new string(label.Select(c => c is '\\' or '/' or ':' or '"' || char.IsControl(c) ? '_' : c).ToArray());
-                queue = new(id, peerId, printer, $"RemotePrint {label} [{id}]", port);
-                lock (_queues) _queues[id] = queue;
-                Save(Path.Combine(Root, "queue-" + id + ".json"), queue);
-            }
             if (!engine.NativePeerAllowed(peerId, printer)) throw new UnauthorizedAccessException("Printer permission revoked before installation");
+            var name = await NativePrinterSetup.PrepareNameAsync(QueueLabel(peer.Name, printer), "RP_" + id, ct);
+            var queue = new NativeQueue(id, peerId, printer, name, 515);
+            lock (_queues) _queues[id] = queue;
+            Save(Path.Combine(Root, "queue-" + id + ".json"), queue);
             await NativePrinterSetup.InstallAsync(reply.Driver, archive, Path.Combine(scratch, "files"), queue.Queue, "RP_" + id, queue.Port, ct, upgradeTest: printer == TestPrinter.Name);
             engine.NativeLog("Windows đã cài máy in bằng driver gốc: " + queue.Queue);
         }
@@ -263,6 +299,8 @@ public sealed class NativePrintRelay(INativeRelayHost engine, Func<string, strin
         await _localCommit.WaitAsync(ct);
         try
         {
+            lock (_queues)
+                if (!_queues.ContainsKey(target.QueueId)) throw new InvalidOperationException("Máy in đã cài không còn trong danh sách.");
             string hash; await using (var file = File.OpenRead(scratch)) hash = Convert.ToHexString(await SHA256.HashDataAsync(file, ct));
             var pending = new NativePending(target.JobId, target.QueueId, bytes, hash);
             var accepted = Path.Combine(Root, "local-" + target.JobId + ".json");

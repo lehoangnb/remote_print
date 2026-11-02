@@ -316,7 +316,21 @@
     "Đã dọn file in thử trên máy này.": "Đã dọn file in thử trên máy này.",
     "Đã gỡ máy in test. File in thử được giữ lại cho tới khi dọn.": "Đã gỡ máy in test. File in thử được giữ lại cho tới khi dọn.",
     "Máy gửi chưa dùng driver PDF. Kết nối lại Remote Print Test và mở lại ứng dụng in.": "Máy gửi chưa dùng driver PDF. Kết nối lại Remote Print Test và mở lại ứng dụng in.",
-    "Đã chuyển PDF tới máy in test trên máy nhận.": "Đã chuyển PDF tới máy in test trên máy nhận."
+    "Đã chuyển PDF tới máy in test trên máy nhận.": "Đã chuyển PDF tới máy in test trên máy nhận.",
+    "Máy in đã cài…": "Máy in đã cài…",
+    "Máy in đã cài": "Máy in đã cài",
+    "Xóa máy in": "Xóa máy in",
+    "Xóa máy in {0} trên máy này? Driver dùng chung và file đã nhận được giữ lại.": "Xóa máy in {0} trên máy này? Driver dùng chung và file đã nhận được giữ lại.",
+    "Chưa có máy in nào được cài qua Remote Print.": "Chưa có máy in nào được cài qua Remote Print.",
+    "Chọn máy in đã cài trên máy này để xóa.": "Chọn máy in đã cài trên máy này để xóa.",
+    "Máy in đã cài không còn trong danh sách.": "Máy in đã cài không còn trong danh sách.",
+    "Máy in còn lệnh đang chờ chuyển hoặc cần kiểm tra. Xử lý lệnh in trước khi xóa.": "Máy in còn lệnh đang chờ chuyển hoặc cần kiểm tra. Xử lý lệnh in trước khi xóa.",
+    "Đã xóa máy in đã cài: ": "Đã xóa máy in đã cài: ",
+    "Finish or cancel pending print jobs before removing the printer": "Finish or cancel pending print jobs before removing the printer",
+    "Finish or cancel pending print jobs before renaming the printer": "Finish or cancel pending print jobs before renaming the printer",
+    "Multiple printers use the relay port": "Multiple printers use the relay port",
+    "Port name belongs to another configuration": "Port name belongs to another configuration",
+    "Queue belongs to another configuration": "Queue belongs to another configuration"
   },
   "en": {
     "Remote Print · Quản trị": "Remote Print · Admin",
@@ -635,6 +649,20 @@
     "Đã dọn file in thử trên máy này.": "Test files on this client have been cleared.",
     "Đã gỡ máy in test. File in thử được giữ lại cho tới khi dọn.": "Test printer uninstalled. Received files are kept until cleanup.",
     "Máy gửi chưa dùng driver PDF. Kết nối lại Remote Print Test và mở lại ứng dụng in.": "The sender is not using the PDF driver yet. Reconnect Remote Print Test and reopen the printing application.",
-    "Đã chuyển PDF tới máy in test trên máy nhận.": "PDF delivered to the receiving test printer."
+    "Đã chuyển PDF tới máy in test trên máy nhận.": "PDF delivered to the receiving test printer.",
+    "Máy in đã cài…": "Installed printers…",
+    "Máy in đã cài": "Installed printers",
+    "Xóa máy in": "Remove printer",
+    "Xóa máy in {0} trên máy này? Driver dùng chung và file đã nhận được giữ lại.": "Remove printer {0} from this computer? Shared drivers and received files will be kept.",
+    "Chưa có máy in nào được cài qua Remote Print.": "No printers have been installed through Remote Print.",
+    "Chọn máy in đã cài trên máy này để xóa.": "Select a printer installed on this computer to remove it.",
+    "Máy in đã cài không còn trong danh sách.": "The installed printer is no longer in the list.",
+    "Máy in còn lệnh đang chờ chuyển hoặc cần kiểm tra. Xử lý lệnh in trước khi xóa.": "This printer has pending or uncertain relay jobs. Resolve them before removing it.",
+    "Đã xóa máy in đã cài: ": "Removed installed printer: ",
+    "Finish or cancel pending print jobs before removing the printer": "Finish or cancel pending print jobs before removing the printer",
+    "Finish or cancel pending print jobs before renaming the printer": "Finish or cancel pending print jobs before renaming the printer",
+    "Multiple printers use the relay port": "Multiple printers use the relay port",
+    "Port name belongs to another configuration": "Port name belongs to another configuration",
+    "Queue belongs to another configuration": "Queue belongs to another configuration"
   }
 }

@@ -27,6 +27,7 @@ public sealed class MainForm : Form
     private readonly ToolStripMenuItem _serviceUninstallItem = new(L.T("Gỡ cài đặt dịch vụ"));
     private readonly ToolStripMenuItem _testPrinterInstallItem = new(L.T("Cài máy in ảo để thử…"));
     private readonly ToolStripMenuItem _testPrinterUninstallItem = new(L.T("Gỡ máy in test…"));
+    internal readonly ToolStripMenuItem InstalledPrintersItem = new(L.T("Máy in đã cài…")) { Enabled = false };
     private readonly ToolStripMenuItem _clearTestFilesItem = new(L.T("Dọn file in thử…"));
     private ServiceSnapshot? _snapshot;
     private bool _refreshing, _settingsLoaded, _servicePrompted, _configPrompted, _setupPromptOpen;
@@ -61,7 +62,11 @@ public sealed class MainForm : Form
         BackColor = SystemColors.Window, HorizontalScrollbar = true
     };
     public PeerListBox PeersGrid { get; } = new();
-    public ComboBox RemotePrinters { get; } = new() { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
+    public ComboBox RemotePrinters { get; } = new()
+    {
+        DropDownStyle = ComboBoxStyle.DropDownList, Anchor = AnchorStyles.Left | AnchorStyles.Right,
+        Margin = new Padding(0, 0, 6, 0)
+    };
     public Button ConnectPrinterButton { get; } = NewButton(L.T("Kết nối máy in"));
     public Button PrintTestButton { get; } = new()
     {
@@ -165,11 +170,18 @@ public sealed class MainForm : Form
         var settings = new ToolStripMenuItem(L.T("Cài đặt"));
         settings.DropDownItems.AddRange([
             configure, new ToolStripSeparator(),
-            _serviceInstallItem, _serviceUninstallItem, new ToolStripSeparator(), _testPrinterInstallItem, _testPrinterUninstallItem, _clearTestFilesItem
+            _serviceInstallItem, _serviceUninstallItem, new ToolStripSeparator(), InstalledPrintersItem,
+            _testPrinterInstallItem, _testPrinterUninstallItem, _clearTestFilesItem
         ]);
         _serviceInstallItem.Click += InstallService_Click;
         _serviceUninstallItem.Click += UninstallService_Click;
         _testPrinterInstallItem.Click += async (_, _) => await InstallTestPrinterAsync();
+        InstalledPrintersItem.Click += (_, _) =>
+        {
+            using var dialog = new InstalledPrintersForm(_service);
+            dialog.ShowDialog(this);
+            _ = RefreshAsync();
+        };
         _testPrinterUninstallItem.Click += async (_, _) => await UninstallTestPrinterAsync();
         _clearTestFilesItem.Click += async (_, _) =>
         {
@@ -317,6 +329,8 @@ public sealed class MainForm : Form
         connectRow.Controls.Add(RemotePrinters, 0, 0);
         connectRow.Controls.Add(ConnectPrinterButton, 1, 0);
         connectRow.Controls.Add(PrintTestButton, 2, 0);
+        ConnectPrinterButton.Anchor = AnchorStyles.Left;
+        PrintTestButton.Anchor = AnchorStyles.Left;
         ConnectPrinterButton.Enabled = false;
         PeersGrid.SelectedIndexChanged += (_, _) => UpdateRemotePrinters();
         RemotePrinters.SelectedIndexChanged += (_, _) => UpdateConnectButton();
@@ -403,6 +417,7 @@ public sealed class MainForm : Form
             // The reason stays out of the layout but one hover away.
             ServiceStatusText.SetTip(L.Message(ex.Message));
             _snapshot = null;
+            InstalledPrintersItem.Enabled = false;
             OpenTestFilesButton.Enabled = false;
             OpenTestFilesButton.Visible = false;
             _testPrinterUninstallItem.Enabled = false;
@@ -426,6 +441,7 @@ public sealed class MainForm : Form
     private void ApplySnapshot(ServiceSnapshot snapshot)
     {
         _snapshot = snapshot;
+        InstalledPrintersItem.Enabled = snapshot.PrinterRemoval;
         OpenTestFilesButton.Visible = snapshot.TestPrinterInstalled;
         OpenTestFilesButton.Enabled = snapshot.TestPrinterInstalled && snapshot.TestFileAccess;
         _testPrinterUninstallItem.Enabled = snapshot.TestPrinterInstalled && snapshot.TestFileMaintenance && !_installingTestPrinter;
@@ -603,7 +619,7 @@ public sealed class MainForm : Form
         UpdateConnectButton();
         try
         {
-            await _service.CallAsync(new("connect-printer", PeerId: peer.Id, Printer: printer));
+            ApplySnapshot(await _service.CallAsync(new("connect-printer", PeerId: peer.Id, Printer: printer)));
             MessageBox.Show(this, string.Format(L.T("Windows đã kết nối máy in {0}."), printer), "Remote Print", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
         catch (Exception ex) { MessageBox.Show(this, L.Message(ex.Message), L.T("Không kết nối được máy in"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
