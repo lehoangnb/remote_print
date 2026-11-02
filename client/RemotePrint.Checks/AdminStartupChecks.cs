@@ -7,6 +7,7 @@ internal static partial class Program
 {
     private static void CheckAdminStartup(string root)
     {
+        CheckServicePresence();
         var release = new ClientRelease("99.0.0", ClientUpdater.Runtime, "", 1, new string('a', 64), "/unused");
         var command = new ClientUpdateRequest("https://print.example.com", release);
         var policy = new ClientUpdatePolicy();
@@ -105,6 +106,16 @@ internal static partial class Program
             form.ApplyLanguage("vi"); form.StopAgent();
         }
         SynchronizationContext.SetSynchronizationContext(originalContext);
+    }
+
+    private static void CheckServicePresence()
+    {
+        Require(ServiceInstallationProbe.FromOpenResult(true, 0) == ServiceInstallationState.Installed &&
+            ServiceInstallationProbe.FromOpenResult(false, 1060) == ServiceInstallationState.Missing &&
+            ServiceInstallationProbe.FromOpenResult(false, 5) == ServiceInstallationState.Unknown &&
+            ServiceInstallationProbe.FromOpenResult(false, 1722) == ServiceInstallationState.Unknown,
+            "SCM discovery distinguishes a missing service from pipe outage and SCM access errors");
+        Console.WriteLine("Current SCM presence: " + ServiceInstallationProbe.Check());
     }
 
     private sealed class FakeStartupRegistration : IStartupRegistration

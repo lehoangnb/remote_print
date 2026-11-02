@@ -15,6 +15,7 @@ public sealed partial class MainForm : Form
     private bool _agentStarted;
     private ServiceSnapshot? _snapshot;
     private bool _refreshing, _settingsLoaded, _servicePrompted, _configPrompted, _setupPromptOpen;
+    private bool _serviceSetupBusy;
     private bool _connectingRemotePrinter;
     private bool _clearingTestFiles;
     private readonly HashSet<string> _printerDraft = new(StringComparer.OrdinalIgnoreCase);
@@ -190,7 +191,7 @@ public sealed partial class MainForm : Form
 
     private async Task RefreshAsync()
     {
-        if (_refreshing) return;
+        if (_refreshing || _serviceSetupBusy || _updateBusy) return;
         _refreshing = true;
         try
         {
@@ -198,11 +199,16 @@ public sealed partial class MainForm : Form
         }
         catch (Exception ex)
         {
+            // An in-flight status request may fail when an update stops the service.
+            // Leave the last known UI state alone until the installer has finished.
+            if (_serviceSetupBusy || _updateBusy) return;
+            var presence = ServiceInstallationProbe.Check();
             ServiceStatusText.Text = L.T("Chưa chạy");
             StatusText.Text = L.T("Chưa kết nối dịch vụ");
             TunnelText.Text = L.T("Chưa kết nối dịch vụ");
-            _serviceInstallItem.Text = L.T("Cài / khởi động dịch vụ");
-            _serviceUninstallItem.Enabled = false;
+            _serviceInstallItem.Text = L.T(presence == ServiceInstallationState.Installed
+                ? "Cập nhật dịch vụ" : "Cài / khởi động dịch vụ");
+            _serviceUninstallItem.Enabled = presence == ServiceInstallationState.Installed;
             // The reason stays out of the layout but one hover away.
             ServiceStatusText.SetTip(L.Message(ex.Message));
             _snapshot = null;
@@ -222,7 +228,7 @@ public sealed partial class MainForm : Form
                 _serverUrl = old.ServerUrl;
                 _settingsLoaded = true;
             }
-            PromptSetup(serviceMissing: true);
+            if (presence == ServiceInstallationState.Missing) PromptSetup(serviceMissing: true);
         }
         finally { _refreshing = false; }
     }
@@ -508,6 +514,8 @@ public sealed partial class MainForm : Form
 
     private async Task InstallService()
     {
+        if (_serviceSetupBusy || _updateBusy) return;
+        _serviceSetupBusy = true;
         SetServiceItems(enabled: false);
         string? migration = null;
         try
@@ -515,14 +523,16 @@ public sealed partial class MainForm : Form
             migration = new ConfigService().PrepareServiceMigration();
             await ElevatedSetup.RunAsync(SetupOperation.InstallService, migration);
             _settingsLoaded = false;
-            await RefreshAsync();
         }
         catch (Exception ex) { ShowError(ex); }
         finally
         {
-            if (migration is not null) File.Delete(migration);
+            try { if (migration is not null) File.Delete(migration); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Debug.WriteLine(ex.Message); }
+            _serviceSetupBusy = false;
             SetServiceItems(enabled: true);
         }
+        await RefreshAsync();
     }
 
     private async void InstallService_Click(object? sender, EventArgs e) => await InstallService();
@@ -542,6 +552,7 @@ public sealed partial class MainForm : Form
             await ElevatedSetup.RunAsync(SetupOperation.UninstallService, migrationFile: null);
             _settingsLoaded = false;
             removed = true;
+            _servicePrompted = true; // An intentional removal should not open the first-run installer dialog.
             MessageBox.Show(this,
                 L.T("Đã gỡ Windows Service. Dữ liệu cấu hình vẫn nằm trong ProgramData\\RemotePrint."),
                 L.T("Gỡ cài đặt dịch vụ"), MessageBoxButtons.OK, MessageBoxIcon.Information);
