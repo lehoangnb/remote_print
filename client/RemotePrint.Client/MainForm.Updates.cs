@@ -6,18 +6,53 @@ namespace RemotePrint.Client;
 public sealed partial class MainForm
 {
     private bool _updateBusy;
+    private bool _checkingClientUpdate;
     private CancellationTokenSource? _updateCancellation;
     private readonly AutomaticUpdateAttempts _updateAttempts = new();
     private readonly ClientUpdatePolicy _updatePolicy = new();
 
-    private async Task ApplyServerUpdateAsync()
+    private async Task CheckClientUpdateAsync()
     {
-        if (_headless || !_settingsLoaded || _setupPromptOpen || _updateBusy || _savingSettings ||
-            _printerDraftDirty || !_serviceInstallItem.Enabled || _snapshot?.Update is not { } command ||
-            command.ServerUrl != _snapshot.Settings.ServerUrl ||
+        if (_checkingClientUpdate || _updateBusy || _savingSettings || !_serviceInstallItem.Enabled) return;
+        _checkingClientUpdate = true;
+        _checkUpdateItem.Enabled = false;
+        _checkUpdateItem.Text = L.T("Đang kiểm tra bản mới nhất…");
+        try
+        {
+            await SavePrinterSelectionAsync();
+            if (_printerDraftDirty) throw new InvalidOperationException(L.T("Đang lưu máy in, hãy thử lại."));
+            var server = _snapshot?.Settings.ServerUrl ?? (_settingsLoaded ? _serverUrl : new ConfigService().LoadOrCreate().ServerUrl);
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            using var updater = new ClientUpdater();
+            var release = await updater.CheckAsync(server, timeout.Token);
+            if (release is null)
+                MessageBox.Show(this, L.T("Không có bản cập nhật client mới hơn trên server."),
+                    L.T("Cập nhật ứng dụng"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+            else await ApplyServerUpdateAsync(new ClientUpdateRequest(server, release));
+        }
+        catch (OperationCanceledException)
+        {
+            if (!IsDisposed) MessageBox.Show(this, L.T("Đã hủy hoặc hết thời gian cập nhật."), L.T("Cập nhật ứng dụng"));
+        }
+        catch (Exception ex) { if (!IsDisposed) ShowError(ex); }
+        finally
+        {
+            _checkingClientUpdate = false;
+            if (!IsDisposed) { _checkUpdateItem.Text = L.T("Cập nhật client…"); _checkUpdateItem.Enabled = true; }
+        }
+    }
+
+    private async Task ApplyServerUpdateAsync(ClientUpdateRequest? requested = null)
+    {
+        var manual = requested is not null;
+        if ((!manual && (_headless || !_settingsLoaded || _checkingClientUpdate)) || _setupPromptOpen || _updateBusy || _savingSettings ||
+            _printerDraftDirty || !_serviceInstallItem.Enabled) return;
+        var command = requested ?? _snapshot?.Update;
+        var configuredServer = _snapshot?.Settings.ServerUrl ?? (_settingsLoaded ? _serverUrl : new ConfigService().LoadOrCreate().ServerUrl);
+        if (command is null || command.ServerUrl != configuredServer ||
             !ClientUpdateProtocol.IsNewerRelease(command.Release)) return;
         var administrator = SetupPaths.IsAdministrator;
-        var action = _updatePolicy.Decide(command, administrator, Visible && WindowState != FormWindowState.Minimized);
+        var action = manual ? ClientUpdateAction.Notify : _updatePolicy.Decide(command, administrator, Visible && WindowState != FormWindowState.Minimized);
         if (action == ClientUpdateAction.None) return;
         var release = command.Release;
         _updateBusy = true;

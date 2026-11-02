@@ -104,6 +104,16 @@ thủ công. Bấm **Tải và cài đặt**. Setup tự chọn kiến trúc Win
 phát hành trên server, kiểm tra SHA-256, manifest và phiên bản các assembly,
 tải/cài .NET 8 Desktop Runtime chính thức từ Microsoft nếu thiếu (kiểm tra SHA-512),
 cài service qua UAC rồi mở client. Máy mới vẫn cần mã mời và duyệt Room như dưới đây.
+Sau khi cài, Windows Start Menu có thư mục **Remote Print** với shortcut mở client
+và **Gỡ cài đặt Remote Print**. Ứng dụng cũng xuất hiện trong **Settings > Apps >
+Installed apps** để gỡ bằng cơ chế chuẩn của Windows. Khi cập nhật, cả hai mục
+được trỏ sang phiên bản mới nhất.
+Có thể gỡ toàn bộ client tại **Cài đặt > Gỡ Remote Print khỏi máy…** trong ứng dụng,
+Start Menu hoặc Windows Installed apps. Quy trình hỏi xác nhận/UAC, dừng và gỡ
+Windows Service, bỏ mục tự khởi động, shortcut, đăng ký Installed apps và các
+thư mục phiên bản cài trong `Program Files\RemotePrint`. File đang được Windows
+sử dụng sẽ được xóa sau lần khởi động lại. Cấu hình ghép nối và file in đã nhận
+trong `ProgramData\RemotePrint` được giữ lại để hỗ trợ cài lại.
 Chạy lại setup dùng bản server đang phát hành kể cả cùng phiên bản, giữ cấu hình
 service đã có. File setup không chứa mã mời hay khóa thiết bị.
 Khi cài lại, setup đóng giao diện client đã cài trong phiên Windows hiện tại
@@ -195,7 +205,9 @@ IPC; client quyết định cập nhật theo quyền thực tế của tiến t
   Khi mở GUI, client báo bản mới và cho chọn cài ngay; chỉ lúc đồng ý mới tải
   rồi yêu cầu UAC. Chọn không để tiếp tục dùng; lần mở GUI tiếp theo có thể báo lại.
 
-Không có nút kiểm tra thủ công hay lịch kiểm tra bản mới riêng. Không cập
+Chọn **Cài đặt > Cập nhật client…** trong MenuStrip để chủ động kiểm tra bản mới
+trên server. Nếu có bản mới, client hỏi xác nhận trước khi tải/cài và mở lại;
+nếu chưa có, client thông báo rõ. Không có lịch kiểm tra bản mới riêng. Không cập
 nhật khi client bằng hoặc mới hơn bản trên server. Client kiểm tra kích thước,
 SHA-256, kiến trúc, phiên bản và manifest của toàn bộ file trước khi cài.
 Lượt tự cập nhật admin thất bại/hết thời gian/bị hủy chờ ít nhất 15 phút để
@@ -223,8 +235,8 @@ báo lỗi; lỗi khôi phục được ghi trong nhật ký cài đặt.
 Build gói phát hành với phiên bản tăng dần, ví dụ:
 
 ```powershell
-.\scripts\publish-client.ps1 -Runtime win-x64 -Version 1.1.4
-.\scripts\publish-client.ps1 -Runtime win-arm64 -Version 1.1.4
+.\scripts\publish-client.ps1 -Runtime win-x64 -Version 1.1.7
+.\scripts\publish-client.ps1 -Runtime win-arm64 -Version 1.1.7
 ```
 
 Tải file `dist/RemotePrint.Client-win-x64.zip` hoặc

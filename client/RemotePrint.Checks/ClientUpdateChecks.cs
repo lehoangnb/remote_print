@@ -40,6 +40,7 @@ internal static partial class Program
         var newer = new Version(current.Major, current.Minor + 1, 0).ToString(3);
         var receivedPaths = new List<string>();
         var badIdentity = false;
+        ClientRelease? manifest = null;
         app.Use(async (context, next) =>
         {
             receivedPaths.Add(context.Request.Path);
@@ -59,6 +60,7 @@ internal static partial class Program
                 "bad-number" => command with { Version = "1.2.65535" },
                 _ => command
             };
+            manifest = command;
             if (mode is not ("none" or "old-server"))
                 context.Response.Headers[ClientUpdateProtocol.UpdateHeader] = mode == "malformed" ? "!not-base64!" :
                     mode == "oversized" ? new string('x', 2049) :
@@ -72,6 +74,13 @@ internal static partial class Program
         app.MapGet("/api/client/tunnel", () => Results.Json(new TunnelInfo()));
         app.MapPut("/api/client/tunnel", () => Results.Json(new TunnelInfo()));
         app.MapGet(release.DownloadPath, () => Results.Bytes(bytes, "application/zip"));
+        app.MapGet("/api/client/updates/" + ClientUpdater.Runtime, () => mode switch
+        {
+            "none" => Results.NoContent(),
+            "malformed" => Results.Text("not-json", "application/json"),
+            "oversized" => Results.Text(new string('x', 16385), "application/json"),
+            _ => Results.Json(manifest, ServiceProtocol.Json)
+        });
         await app.StartAsync();
         var address = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single();
         var config = new ClientConfig { ServerUrl = address };
@@ -127,6 +136,25 @@ internal static partial class Program
         Require(!attempts.TryBegin(request, now.AddMinutes(15).AddSeconds(3)),
             "An older in-flight command remains throttled after another package or server was attempted");
         using var updater = new ClientUpdater();
+        Require(receivedPaths.All(path => !path.StartsWith("/api/client/updates/win-")),
+            "Automatic API traffic does not poll update metadata");
+        Require((await updater.CheckAsync(address, default))?.Version == newer,
+            "Manual check fetches the latest release for the running architecture");
+        foreach (var value in new[] { "none", "same", "same-four", "downgrade", "wrong-runtime", "bad-path", "bad-hash", "bad-size", "bad-version", "bad-number" })
+        {
+            mode = value;
+            Require(await updater.CheckAsync(address, default) is null, "Manual check offers no update for " + value);
+        }
+        mode = "failed";
+        try { await updater.CheckAsync(address, default); throw new Exception("Manual check ignored HTTP failure"); }
+        catch (System.Net.Http.HttpRequestException) { Require(true, "Manual check reports server failures"); }
+        mode = "malformed";
+        try { await updater.CheckAsync(address, default); throw new Exception("Manual check ignored malformed metadata"); }
+        catch (JsonException) { Require(true, "Manual check rejects malformed metadata"); }
+        mode = "oversized";
+        try { await updater.CheckAsync(address, default); throw new Exception("Manual check ignored oversized metadata"); }
+        catch (InvalidDataException) { Require(true, "Manual check bounds the metadata response"); }
+        mode = "new";
         foreach (var url in new[] { "http://print.example.com", "https://user:pass@print.example.com", "RPPAIR1.bad", "https://print.example.com/?secret=x" })
         {
             try { ClientUpdater.ServerUri(url); throw new Exception("Unsafe server accepted"); }
@@ -165,16 +193,16 @@ internal static partial class Program
         using (var form = new MainForm("RemotePrint.Update.Checks." + Guid.NewGuid().ToString("N"), headless: true))
         {
             var settings = form.MainMenuStrip!.Items.OfType<System.Windows.Forms.ToolStripMenuItem>().First();
-            Require(!settings.DropDownItems.Cast<System.Windows.Forms.ToolStripItem>().Any(item => item.Name == "_checkUpdateItem" || (item.Text ?? "").Contains("Kiểm tra cập nhật")),
-                "Settings no longer offers a manual update check");
+            var checkItem = settings.DropDownItems.Cast<System.Windows.Forms.ToolStripItem>().Single(item => item.Name == "_checkUpdateItem");
+            Require(checkItem.Enabled && checkItem.Text == "Cập nhật client…",
+                "Settings offers the manual client update action in Vietnamese");
             form.ApplyLanguage("en");
-            Require(!settings.DropDownItems.Cast<System.Windows.Forms.ToolStripItem>().Any(item => (item.Text ?? "").Contains("Check for updates")),
-                "English settings no longer offers a manual update check");
+            Require(checkItem.Text == "Update client…", "Manual update menu switches to English");
             form.ApplyLanguage("vi"); form.StopAgent();
+            Require(checkItem.Text == "Cập nhật client…", "Manual update menu switches back to Vietnamese");
         }
         SynchronizationContext.SetSynchronizationContext(previousContext);
-        Require(!badIdentity && receivedPaths.All(path => !path.StartsWith("/api/client/updates/win-")),
-            "Client traffic carries build identity without a separate manifest polling request");
+        Require(!badIdentity, "Manual and automatic update requests carry the client build identity");
         await app.StopAsync();
     }
 }

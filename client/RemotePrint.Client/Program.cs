@@ -38,6 +38,7 @@ internal static class Program
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
         Application.SetDefaultFont(new Font("Segoe UI", 9F));
+        if (args.Contains("--uninstall")) return ClientUninstaller.RunStandalone();
 
         var sid = WindowsIdentity.GetCurrent().User!.Value;
         var showManager = !args.Contains("--background") || args.Contains("--show-manager");
@@ -53,11 +54,13 @@ internal static class Program
         }
         Mutex? instance = null;
         EventWaitHandle showEvent;
+        EventWaitHandle exitEvent;
         bool isFirst;
         try
         {
             instance = new Mutex(true, $"Local\\RemotePrint.UI.{sid}", out isFirst);
             showEvent = new EventWaitHandle(false, EventResetMode.AutoReset, $"Local\\RemotePrint.Show.{sid}");
+            exitEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ExitEventName(sid));
         }
         catch (UnauthorizedAccessException)
         {
@@ -68,6 +71,7 @@ internal static class Program
         }
         using var instanceLifetime = instance;
         using var showEventLifetime = showEvent;
+        using var exitEventLifetime = exitEvent;
         if (!isFirst)
         {
             if (showManager) showEvent.Set();
@@ -114,8 +118,13 @@ internal static class Program
         {
             try
             {
-                while (showEvent.WaitOne())
+                while (true)
                 {
+                    if (WaitHandle.WaitAny([showEvent, exitEvent]) == 1)
+                    {
+                        if (!form.IsDisposed && form.IsHandleCreated) form.BeginInvoke(ExitInterface);
+                        break;
+                    }
                     if (!form.IsDisposed && form.IsHandleCreated) form.BeginInvoke(ShowManager);
                 }
             }
@@ -128,5 +137,18 @@ internal static class Program
         Application.Run(context);
         form.StopAgent();
         return 0;
+    }
+
+    private static string ExitEventName(string sid) => $"Local\\RemotePrint.Exit.{sid}";
+
+    internal static void RequestClientExit()
+    {
+        try
+        {
+            using var exit = EventWaitHandle.OpenExisting(ExitEventName(WindowsIdentity.GetCurrent().User!.Value));
+            exit.Set();
+        }
+        catch (WaitHandleCannotBeOpenedException) { }
+        catch (UnauthorizedAccessException) { }
     }
 }

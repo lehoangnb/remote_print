@@ -30,8 +30,10 @@ partial class MainForm
         _settingsItem = new ToolStripMenuItem();
         _configureItem = new ToolStripMenuItem();
         _adminStartupItem = new ToolStripMenuItem();
+        _checkUpdateItem = new ToolStripMenuItem();
         _serviceInstallItem = new ToolStripMenuItem();
         _serviceUninstallItem = new ToolStripMenuItem();
+        _clientUninstallItem = new ToolStripMenuItem();
         _testPrinterInstallItem = new ToolStripMenuItem();
         _testPrinterUninstallItem = new ToolStripMenuItem();
         InstalledPrintersItem = new ToolStripMenuItem();
@@ -110,7 +112,7 @@ partial class MainForm
         //
         _settingsItem.Name = "_settingsItem";
         _settingsItem.Text = "Cài đặt";
-        _settingsItem.DropDownItems.AddRange(new ToolStripItem[] { _configureItem, _adminStartupItem, _setupSeparator, _serviceInstallItem, _serviceUninstallItem, _printerSeparator, InstalledPrintersItem, _testPrinterInstallItem, _testPrinterUninstallItem, _clearTestFilesItem });
+        _settingsItem.DropDownItems.AddRange(new ToolStripItem[] { _configureItem, _adminStartupItem, _checkUpdateItem, _setupSeparator, _serviceInstallItem, _serviceUninstallItem, _clientUninstallItem, _printerSeparator, InstalledPrintersItem, _testPrinterInstallItem, _testPrinterUninstallItem, _clearTestFilesItem });
         //
         // _configureItem
         //
@@ -123,6 +125,11 @@ partial class MainForm
         _adminStartupItem.Text = "Luôn chạy với quyền quản trị";
         _adminStartupItem.ToolTipText = "Áp dụng cả khi khởi động cùng Windows.";
         //
+        // _checkUpdateItem
+        //
+        _checkUpdateItem.Name = "_checkUpdateItem";
+        _checkUpdateItem.Text = "Cập nhật client…";
+        //
         // _serviceInstallItem
         //
         _serviceInstallItem.Name = "_serviceInstallItem";
@@ -132,6 +139,11 @@ partial class MainForm
         //
         _serviceUninstallItem.Name = "_serviceUninstallItem";
         _serviceUninstallItem.Text = "Gỡ cài đặt dịch vụ";
+        //
+        // _clientUninstallItem
+        //
+        _clientUninstallItem.Name = "_clientUninstallItem";
+        _clientUninstallItem.Text = "Gỡ Remote Print khỏi máy…";
         //
         // _testPrinterInstallItem
         //
@@ -608,8 +620,10 @@ partial class MainForm
     private ToolStripMenuItem _settingsItem;
     private ToolStripMenuItem _configureItem;
     internal ToolStripMenuItem _adminStartupItem;
+    private ToolStripMenuItem _checkUpdateItem;
     private ToolStripMenuItem _serviceInstallItem;
     private ToolStripMenuItem _serviceUninstallItem;
+    private ToolStripMenuItem _clientUninstallItem;
     private ToolStripMenuItem _testPrinterInstallItem;
     private ToolStripMenuItem _testPrinterUninstallItem;
     internal ToolStripMenuItem InstalledPrintersItem;

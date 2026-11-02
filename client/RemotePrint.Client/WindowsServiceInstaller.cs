@@ -103,11 +103,14 @@ internal sealed class ServiceRegistrar : IServiceRegistrar
 /// <param name="guard">The Checks suite injects a fake so the whole flow runs unelevated
 /// against temporary folders; every production caller leaves it on the real gate.</param>
 internal sealed class WindowsServiceInstaller(IServiceRegistrar registrar, SetupRoots? roots = null,
-    IAgentStartup? agent = null, string? packageRoot = null, ISetupGuard? guard = null)
+    IAgentStartup? agent = null, string? packageRoot = null, ISetupGuard? guard = null,
+    IClientAppRegistration? app = null, IClientInstallCleanup? cleanup = null)
 {
     private SetupRoots Roots => roots ?? SetupRoots.Default;
     private IAgentStartup Agent => agent ?? new RegistryAgentStartup();
     private ISetupGuard Guard => guard ?? new WindowsSetupGuard();
+    private IClientAppRegistration App => app ?? new ClientAppRegistration();
+    private IClientInstallCleanup Cleanup => cleanup ?? new ClientInstallCleanup();
 
     // The elevated worker installs the copy of the package it was launched from, which is
     // always the running executable's own folder.
@@ -137,20 +140,41 @@ internal sealed class WindowsServiceInstaller(IServiceRegistrar registrar, Setup
                 registrar.Configure(SetupPaths.ServiceExecutable(version), update: update);
                 Agent.Register(userSid, Path.Combine(version, "RemotePrint.Client.exe"));
                 registrar.Start();
+                App.Register(Path.Combine(version, "RemotePrint.Client.exe"));
             }
-            catch (Exception installError) when (update && previousBinary is not null)
+            catch (Exception installError)
             {
-                try
+                if (update && previousBinary is not null)
                 {
-                    registrar.Stop();
-                    registrar.Configure(previousBinary, update: true);
-                    Agent.Register(userSid, Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(previousBinary))!, "RemotePrint.Client.exe"));
-                    registrar.Start();
+                    try
+                    {
+                        registrar.Stop();
+                        registrar.Configure(previousBinary, update: true);
+                        Agent.Register(userSid, Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(previousBinary))!, "RemotePrint.Client.exe"));
+                        registrar.Start();
+                        App.Register(Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(previousBinary))!, "RemotePrint.Client.exe"));
+                    }
+                    catch (Exception rollbackError)
+                    {
+                        throw new InvalidOperationException(installError.Message + "\n" +
+                            "Không khôi phục được dịch vụ cũ: " + rollbackError.Message, installError);
+                    }
                 }
-                catch (Exception rollbackError)
+                else if (!update)
                 {
-                    throw new InvalidOperationException(installError.Message + "\n" +
-                        "Không khôi phục được dịch vụ cũ: " + rollbackError.Message, installError);
+                    // A fresh install must not leave a running service whose Start
+                    // Menu/Installed Apps registration failed halfway through.
+                    try
+                    {
+                        Agent.Unregister(userSid);
+                        if (registrar.Exists()) { registrar.Stop(); registrar.Remove(); }
+                        App.Unregister();
+                    }
+                    catch (Exception rollbackError)
+                    {
+                        throw new InvalidOperationException(installError.Message + "\n" +
+                            "Không dọn được bản cài đặt lỗi: " + rollbackError.Message, installError);
+                    }
                 }
                 throw;
             }
@@ -228,5 +252,13 @@ internal sealed class WindowsServiceInstaller(IServiceRegistrar registrar, Setup
         if (!registrar.Exists()) return;
         registrar.Stop();
         registrar.Remove();
+    }
+
+    public void UninstallClient(string? userSid = null)
+    {
+        Guard.RequireAdministrator("gỡ Remote Print khỏi hệ thống");
+        Uninstall(userSid);
+        App.Unregister();
+        Cleanup.RemoveVersions(Roots.InstallRoot);
     }
 }

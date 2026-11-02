@@ -235,6 +235,11 @@ internal static partial class Program
         manager.LanguageChanged += (_, _) => languageEvents++;
         manager.ApplyLanguage("en");
         Require(manager.InstalledPrintersItem.Text == "Installed printers…", "Installed printer menu switches to English");
+        var settingsMenu = manager.Controls.OfType<MenuStrip>().Single().Items
+            .OfType<ToolStripMenuItem>().Single(item => item.Name == "_settingsItem");
+        Require(settingsMenu.DropDownItems.OfType<ToolStripMenuItem>()
+                .Single(item => item.Name == "_clientUninstallItem").Text == "Uninstall Remote Print from this PC…",
+            "Full uninstall menu switches to English");
         using (var installed = new InstalledPrintersForm(new ServiceClient("RemotePrint.Unused.Checks")))
         {
             installed.ApplySnapshot(new ServiceSnapshot { InstalledPrinters = [new("id", "Office_Canon")] });

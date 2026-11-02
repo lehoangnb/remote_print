@@ -11,6 +11,7 @@ public enum SetupOperation
 {
     InstallService,
     UninstallService,
+    UninstallClient,
     EnableAdminStartup,
     DisableAdminStartup
 }
@@ -141,6 +142,9 @@ internal static class ElevatedSetup
                     .Install(TrustedSid(userSid), TrustedMigration(migrationFile));
             case SetupOperation.UninstallService:
                 new WindowsServiceInstaller(new ServiceRegistrar()).Uninstall(TrustedSid(userSid));
+                break;
+            case SetupOperation.UninstallClient:
+                new WindowsServiceInstaller(new ServiceRegistrar()).UninstallClient(TrustedSid(userSid));
                 break;
             case SetupOperation.EnableAdminStartup:
             case SetupOperation.DisableAdminStartup:

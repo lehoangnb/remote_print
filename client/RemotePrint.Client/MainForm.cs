@@ -149,8 +149,10 @@ public sealed partial class MainForm : Form
         _configureItem.Click += (_, _) => OpenConfiguration();
         _adminStartupItem.Checked = AdminAgentStartup.IsEnabled(AdminAgentStartup.CurrentSid);
         _adminStartupItem.Click += async (_, _) => await ChangeAdminStartupAsync();
+        _checkUpdateItem.Click += async (_, _) => await CheckClientUpdateAsync();
         _serviceInstallItem.Click += InstallService_Click;
         _serviceUninstallItem.Click += UninstallService_Click;
+        _clientUninstallItem.Click += async (_, _) => await UninstallClientAsync();
         _testPrinterInstallItem.Click += async (_, _) => await InstallTestPrinterAsync();
         InstalledPrintersItem.Click += (_, _) =>
         {
@@ -553,6 +555,21 @@ public sealed partial class MainForm : Form
             _serviceUninstallItem.Enabled = !removed;
         }
         await RefreshAsync();
+    }
+
+    private async Task UninstallClientAsync()
+    {
+        if (!ClientUninstaller.Confirm(this)) return;
+        _clientUninstallItem.Enabled = false;
+        try
+        {
+            await ElevatedSetup.RunAsync(SetupOperation.UninstallClient, migrationFile: null);
+            ClientUninstaller.ShowSuccess(this);
+            StopAgent();
+            Application.Exit();
+        }
+        catch (Exception ex) { ShowError(ex); }
+        finally { if (!IsDisposed) _clientUninstallItem.Enabled = true; }
     }
 
     private void SetServiceItems(bool enabled)

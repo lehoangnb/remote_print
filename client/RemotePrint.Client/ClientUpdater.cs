@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Net;
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -26,6 +27,25 @@ internal sealed class ClientUpdater : IDisposable
             uri.UserInfo.Length != 0 || uri.Query.Length != 0 || uri.Fragment.Length != 0)
             throw new InvalidOperationException(L.T("Hãy cấu hình địa chỉ server HTTPS để tự động cập nhật."));
         return uri;
+    }
+
+    internal async Task<ClientRelease?> CheckAsync(string server, CancellationToken ct)
+    {
+        using var response = await _http.GetAsync(new Uri(ServerUri(server), "api/client/updates/" + Runtime),
+            HttpCompletionOption.ResponseHeadersRead, ct);
+        if (response.StatusCode == HttpStatusCode.NoContent) return null;
+        response.EnsureSuccessStatusCode();
+        await using var input = await response.Content.ReadAsStreamAsync(ct);
+        using var buffer = new MemoryStream();
+        var bytes = new byte[4096];
+        int count;
+        while ((count = await input.ReadAsync(bytes, ct)) > 0)
+        {
+            if (buffer.Length + count > 16384) throw new InvalidDataException(L.T("Gói cập nhật không hợp lệ."));
+            buffer.Write(bytes, 0, count);
+        }
+        var release = JsonSerializer.Deserialize<ClientRelease>(buffer.ToArray(), ServiceProtocol.Json);
+        return ClientUpdateProtocol.IsNewerRelease(release) ? release : null;
     }
 
     internal async Task DownloadAsync(string server, ClientRelease release, string archive, IProgress<int>? progress, CancellationToken ct)

@@ -71,7 +71,9 @@ internal static partial class Program
         var guard = new FakeGuard();
         var registrar = new FakeRegistrar();
         var agent = new FakeAgent();
-        var installer = new WindowsServiceInstaller(registrar, roots, agent, package, guard);
+        var app = new FakeApp();
+        var cleanup = new FakeCleanup();
+        var installer = new WindowsServiceInstaller(registrar, roots, agent, package, guard, app, cleanup);
         var config = Path.Combine(roots.ServiceData, "config.json");
 
         installer.Install(TestSid, null);
@@ -89,6 +91,8 @@ internal static partial class Program
         Require(agent.RegisteredSid == TestSid &&
                 agent.RegisteredPath == Path.Combine(version, "RemotePrint.Client.exe"),
             "Desktop agent runs from the installed version through the Run key");
+        Require(app.RegisteredPath == Path.Combine(version, "RemotePrint.Client.exe"),
+            "Start Menu and uninstall registration targets the active version");
         Require(File.ReadAllText(roots.LogPath).Contains("Installed successfully", StringComparison.Ordinal),
             "Install records the result in install.log");
 
@@ -101,6 +105,8 @@ internal static partial class Program
         Require(registrar.Calls.SequenceEqual(new[] { "stop", "update", "start" }),
             "Updating a running service restarts it with the new binary");
         Require(registrar.Configured[1].Update, "Second install updates the binary path of the existing service");
+        Require(app.RegisteredPath == Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(registrar.Configured[1].BinaryPath))!, "RemotePrint.Client.exe"),
+            "An update repoints the client shortcut and uninstall entry");
         Require(File.ReadAllText(config) == "existing-config",
             "A live service configuration is never overwritten by the migration");
         var previousVersion = Path.GetDirectoryName(Path.GetDirectoryName(registrar.Configured[1].BinaryPath))!;
@@ -126,8 +132,15 @@ internal static partial class Program
         Require(Throws(() => installer.Install(TestSid, null), "Simulated start failure") &&
                 registrar.CurrentBinaryPath() == rollbackBinary &&
                 agent.RegisteredPath == Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(rollbackBinary!))!, "RemotePrint.Client.exe") &&
+                app.RegisteredPath == Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(rollbackBinary!))!, "RemotePrint.Client.exe") &&
                 File.ReadAllText(config) == "migrated-config",
             "Failed update restores the previous service binary/startup and preserves configuration");
+
+        app.FailNextRegistrations = 1;
+        Require(Throws(() => installer.Install(TestSid, null), "Simulated shortcut failure") &&
+                registrar.CurrentBinaryPath() == rollbackBinary &&
+                app.RegisteredPath == Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(rollbackBinary!))!, "RemotePrint.Client.exe"),
+            "Shortcut registration failure restores the old service and shortcut targets");
 
         registrar.Calls.Clear();
         agent.Calls.Clear();
@@ -138,6 +151,48 @@ internal static partial class Program
         registrar.Calls.Clear();
         installer.Uninstall();
         Require(registrar.Calls.Count == 0, "Uninstall without the service only clears the Run value");
+        Require(!app.Unregistered && cleanup.Calls == 0,
+            "Service-only uninstall keeps the client installation and shortcuts");
+        installer.UninstallClient();
+        Require(app.Unregistered && cleanup.Calls == 1 && cleanup.LastRoot == roots.InstallRoot,
+            "Full uninstall removes Windows integration and installed versions");
+
+        var shortcutDirectory = Path.Combine(root, "Thư mục tiếng Việt");
+        Directory.CreateDirectory(shortcutDirectory);
+        var shortcut = Path.Combine(shortcutDirectory, "Gỡ cài đặt Remote Print.lnk");
+        ClientAppRegistration.CreateShortcut(shortcut, Path.Combine(package, "RemotePrint.Client.exe"),
+            "--uninstall", "Gỡ cài đặt Remote Print");
+        Require(File.Exists(shortcut) && new FileInfo(shortcut).Length > 0,
+            "Windows Shell saves a Vietnamese shortcut inside a Vietnamese directory");
+        var shell = Activator.CreateInstance(Type.GetTypeFromCLSID(new Guid("00021401-0000-0000-C000-000000000046"))!)!;
+        try
+        {
+            ((System.Runtime.InteropServices.ComTypes.IPersistFile)shell).Load(shortcut, 0);
+            var saved = (ClientAppRegistration.IShellLinkW)shell;
+            var target = new System.Text.StringBuilder(1024);
+            var arguments = new System.Text.StringBuilder(1024);
+            var description = new System.Text.StringBuilder(1024);
+            saved.GetPath(target, target.Capacity, IntPtr.Zero, 0);
+            saved.GetArguments(arguments, arguments.Capacity);
+            saved.GetDescription(description, description.Capacity);
+            Require(target.ToString().Equals(Path.Combine(package, "RemotePrint.Client.exe"), StringComparison.OrdinalIgnoreCase) &&
+                    arguments.ToString() == "--uninstall" && description.ToString() == "Gỡ cài đặt Remote Print",
+                "Persisted shortcut preserves executable, uninstall arguments and Vietnamese description");
+        }
+        finally { System.Runtime.InteropServices.Marshal.FinalReleaseComObject(shell); }
+
+        var cleanupRoot = Path.Combine(root, "cleanup-check", "RemotePrint");
+        var cleanupVersion = Path.Combine(cleanupRoot, "versions", Guid.NewGuid().ToString("N"));
+        var unrelated = Path.Combine(cleanupRoot, "versions", "keep-user-files");
+        Directory.CreateDirectory(cleanupVersion);
+        Directory.CreateDirectory(unrelated);
+        File.WriteAllText(Path.Combine(cleanupVersion, "RemotePrint.Client.exe"), "test");
+        File.WriteAllText(Path.Combine(unrelated, "notes.txt"), "keep");
+        new ClientInstallCleanup(cleanupRoot).RemoveVersions(cleanupRoot);
+        Require(!Directory.Exists(cleanupVersion) && File.Exists(Path.Combine(unrelated, "notes.txt")),
+            "Full cleanup deletes managed versions without deleting unrelated directories");
+        Require(Throws(() => new ClientInstallCleanup(cleanupRoot).RemoveVersions(root), "Thư mục cài đặt không hợp lệ"),
+            "Full cleanup rejects paths outside the installation root");
 
         var empty = Path.Combine(root, "empty-package");
         Directory.CreateDirectory(empty);
@@ -230,5 +285,25 @@ internal static partial class Program
             RegisteredSid = null;
             RegisteredPath = null;
         }
+    }
+
+    private sealed class FakeApp : IClientAppRegistration
+    {
+        public string? RegisteredPath { get; private set; }
+        public bool Unregistered { get; private set; }
+        public int FailNextRegistrations { get; set; }
+        public void Register(string executable)
+        {
+            if (FailNextRegistrations-- > 0) throw new InvalidOperationException("Simulated shortcut failure");
+            RegisteredPath = executable; Unregistered = false;
+        }
+        public void Unregister() => Unregistered = true;
+    }
+
+    private sealed class FakeCleanup : IClientInstallCleanup
+    {
+        public int Calls { get; private set; }
+        public string? LastRoot { get; private set; }
+        public void RemoveVersions(string installRoot) { Calls++; LastRoot = installRoot; }
     }
 }
