@@ -218,7 +218,7 @@ public sealed partial class MainForm : Form
 
     private void BuildLayout()
     {
-        Text = "Remote Print";
+        Text = $"Remote Print {ClientUpdater.CurrentVersion}";
         Font = new Font("Segoe UI", 9F);
         BackColor = SystemColors.Control;
         StartPosition = FormStartPosition.CenterScreen;
