@@ -87,6 +87,7 @@ public sealed partial class MainForm : Form
         _headless = headless;
         BuildMenu();
         BuildLayout();
+        RoomText.AutoEllipsis = true;
         PrintersList.ItemCheck += (_, e) =>
         {
             if (_updatingPrinterList || !_printerDraftLoaded || PrintersList.Items[e.Index] is not string name) return;
@@ -453,7 +454,8 @@ public sealed partial class MainForm : Form
         ServiceStatusText.Text = L.T("Đang chạy");
         ServiceStatusText.SetTip(snapshot.NativePrinting ? null : L.T("Cần cập nhật dịch vụ để dùng relay driver/RAW."));
         StatusText.Text = L.T(snapshot.Connection);
-        RoomText.Text = snapshot.State.Room ?? L.T("Chưa được gán");
+        RoomText.Text = snapshot.State.Rooms.Count > 0 ? string.Join(", ", snapshot.State.Rooms) : snapshot.State.Room ?? L.T("Chưa được gán");
+        RoomText.SetTip(RoomText.Text);
         TunnelText.Text = L.Message(snapshot.TunnelStatus);
         TunnelText.SetTip(L.Message(snapshot.TunnelStatus));
         _serviceInstallItem.Text = L.T("Cập nhật dịch vụ");

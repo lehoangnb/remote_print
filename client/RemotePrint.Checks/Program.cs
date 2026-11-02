@@ -165,6 +165,10 @@ internal static partial class Program
         var apply = typeof(MainForm).GetMethod("ApplySnapshot", BindingFlags.Instance | BindingFlags.NonPublic)!;
         void Apply(ServiceSnapshot state) => apply.Invoke(manager, [state]);
         Apply(snapshot);
+        Require(manager.RoomText.Text == "Office", "Legacy single Room snapshots remain readable");
+        snapshot.State.Rooms = ["Office", "Warehouse"]; Apply(snapshot);
+        Require(manager.RoomText.Text == "Office, Warehouse" && manager.RoomText.GetTip() == "Office, Warehouse",
+            "Windows shows all assigned Rooms and preserves the full list in a tooltip");
         Require(!manager.InstalledPrintersItem.Enabled, "Older services cannot receive unsupported printer removal commands");
         snapshot.PrinterRemoval = true; Apply(snapshot);
         Require(manager.InstalledPrintersItem.Enabled, "Installed printers can be managed without selecting an online peer");

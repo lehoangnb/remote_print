@@ -1,5 +1,5 @@
 import { t, locale, translateTree } from './i18n.js';
-import { elements as el, render, renderClients, renderRooms, showDashboard, showNotice } from './ui.js';
+import { elements as el, render, renderClients, renderRooms, showDashboard, showNotice, clientRooms } from './ui.js';
 
 const state = {
   token: sessionStorage.getItem('adminToken'),
@@ -226,9 +226,9 @@ el['login-form'].addEventListener('submit', async event => {
 });
 
 el.clients.addEventListener('change', event => {
-  const select = event.target.closest('select[data-room]');
+  const select = event.target.closest('[data-room]');
   if (!select) return;
-  state.roomDrafts.set(select.dataset.room, select.value);
+  state.roomDrafts.set(select.dataset.room, [...select.querySelectorAll("input:checked")].map(input => input.value));
   state.clientErrors.delete(select.dataset.room);
   renderClients(state);
 });
@@ -242,8 +242,8 @@ el.clients.addEventListener('click', async event => {
   if (!client) return;
   const approving = Boolean(button.dataset.approve);
   const actionToken = state.token;
-  const room = state.roomDrafts.has(id) ? state.roomDrafts.get(id) : client.room || '';
-  if (approving && !room) {
+  const rooms = state.roomDrafts.get(id) ?? clientRooms(client);
+  if (approving && !rooms.length) {
     state.clientErrors.set(id, t("Chọn Room trước khi duyệt máy."));
     renderClients(state);
     return;
@@ -253,14 +253,14 @@ el.clients.addEventListener('click', async event => {
   renderClients(state);
   try {
     const updated = await api('/api/admin/clients/' + encodeURIComponent(id) + (approving ? '/approve' : '/reject'), {
-      method: 'POST', body: JSON.stringify(approving ? { room } : {})
+      method: 'POST', body: JSON.stringify(approving ? { rooms } : {})
     });
     if (state.token !== actionToken) return;
     state.revision++;
     state.clients = state.clients.map(item => item.id === id ? updated : item);
     state.roomDrafts.delete(id);
-    if (approving && !state.rooms.includes(room)) state.rooms.push(room);
-    showNotice(approving ? t("Đã duyệt ") + client.name + t(" vào Room ") + room + '.' : t("Đã từ chối quyền truy cập của ") + client.name + '.');
+    if (approving) for (const room of updated.rooms) if (!state.rooms.includes(room)) state.rooms.push(room);
+    showNotice(approving ? t("Đã duyệt ") + client.name + t(" vào Room ") + rooms.join(", ") + '.' : t("Đã từ chối quyền truy cập của ") + client.name + '.');
     render(state);
   } catch (error) {
     if (state.token === actionToken) state.clientErrors.set(id, error.message);
@@ -314,7 +314,7 @@ el['room-list'].addEventListener('click', async event => {
   if (remove && el['room-list'].contains(remove)) {
     const room = remove.dataset.deleteRoom;
     if (!state.rooms.includes(room) || state.busyRooms.has(room)) return;
-    const assigned = state.clients.filter(client => client.room === room).length;
+    const assigned = state.clients.filter(client => clientRooms(client).includes(room)).length;
     if (assigned > 0) {
       showNotice('Room ' + room + t(" đang có ") + assigned + t(" máy. Chuyển máy sang Room khác trước khi xóa."), true);
       return;
@@ -329,7 +329,7 @@ el['room-list'].addEventListener('click', async event => {
       state.revision++;
       state.rooms = state.rooms.filter(item => item !== room);
       for (const [id, draft] of state.roomDrafts) {
-        if (draft === room) state.roomDrafts.delete(id);
+        if (draft.includes(room)) state.roomDrafts.set(id, draft.filter(value => value !== room));
       }
       if (state.filters.room === room) {
         state.filters.room = '';

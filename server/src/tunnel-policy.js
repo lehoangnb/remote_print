@@ -1,6 +1,8 @@
 // The relay operates in a dedicated network namespace. This module accepts only
 // addresses allocated by the control plane and never interpolates client text
 // (including Room names) into nft or wg configuration.
+import { roomsFor } from './rooms.js';
+
 export function isTunnelKey(key) {
   if (typeof key !== 'string' || !/^[A-Za-z0-9+/]{43}=$/u.test(key)) return false;
   const bytes = Buffer.from(key, 'base64');
@@ -20,20 +22,22 @@ export function tunnelPolicy(clients, now = Date.now()) {
   if (!Array.isArray(clients)) throw new Error('Invalid client list');
   const keys = new Set(), addresses = new Set(), rooms = new Map(), peers = [];
   for (const client of clients) {
-    if (client.status !== 'approved' || !client.room || !client.tunnelAddress || !client.tunnelPublicKey) continue;
+    if (client.status !== 'approved' || !roomsFor(client).length || !client.tunnelAddress || !client.tunnelPublicKey) continue;
     const lastSeen = Date.parse(client.lastSeenAt);
     // Clients heartbeat independently every 10 s; the API publishes the relay
     // snapshot every 3 s. Allow a modest delay without retaining dead peers
     // for a full minute after their final authenticated API request.
     if (!Number.isFinite(lastSeen) || lastSeen > now + 5000 || now - lastSeen > 30_000) continue;
-    if (typeof client.room !== 'string' || !isTunnelAddress(client.tunnelAddress) ||
+    if (roomsFor(client).some(room => typeof room !== 'string' || !room) || !isTunnelAddress(client.tunnelAddress) ||
         !isTunnelKey(client.tunnelPublicKey) || keys.has(client.tunnelPublicKey) || addresses.has(client.tunnelAddress))
       throw new Error('Invalid or duplicate tunnel peer');
     keys.add(client.tunnelPublicKey);
     addresses.add(client.tunnelAddress);
     peers.push({ address: client.tunnelAddress, publicKey: client.tunnelPublicKey });
-    if (!rooms.has(client.room)) rooms.set(client.room, []);
-    rooms.get(client.room).push(client.tunnelAddress);
+    for (const room of new Set(roomsFor(client))) {
+      if (!rooms.has(room)) rooms.set(room, []);
+      rooms.get(room).push(client.tunnelAddress);
+    }
   }
   peers.sort((a, b) => a.address.localeCompare(b.address));
   const groups = [...rooms.values()].map((group) => group.sort()).filter((group) => group.length > 1)

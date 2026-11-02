@@ -84,6 +84,18 @@ test('Windows share discovery, Room approval/revocation and removed document API
   assert.equal(peers[0].nativePrinting, true);
   assert.deepEqual(peers[0].windowsPrinterShares, b.windowsPrinterShares);
   assert.deepEqual((await json('/api/client/peers', { headers: headers(c) })).body, []);
+  const multi = await json(`/api/admin/clients/${a.deviceId}/approve`, { method: 'POST', headers: admin,
+    body: JSON.stringify({ rooms: ['one', 'TWO', 'one'] }) });
+  assert.equal(multi.response.status, 200);
+  assert.deepEqual(multi.body.rooms, ['one', 'two']);
+  assert.deepEqual(new Set((await json('/api/client/peers', { headers: headers(a) })).body.map(p => p.id)), new Set([b.deviceId, c.deviceId]));
+  assert.deepEqual((await json('/api/client/peers', { headers: headers(b) })).body.map(p => p.id), [a.deviceId]);
+  assert.deepEqual((await json('/api/client/peers', { headers: headers(c) })).body.map(p => p.id), [a.deviceId]);
+  for (const rooms of [[], 'one', [null], [''], ['x'.repeat(81)]])
+    assert.equal((await json(`/api/admin/clients/${a.deviceId}/approve`, { method: 'POST', headers: admin, body: JSON.stringify({ rooms }) })).response.status, 400);
+  await json(`/api/admin/clients/${a.deviceId}/approve`, { method: 'POST', headers: admin, body: JSON.stringify({ rooms: ['one'] }) });
+  assert.deepEqual((await json('/api/client/peers', { headers: headers(c) })).body, []);
+
   assert.equal((await json('/api/client/register', {
     method: 'POST', body: JSON.stringify({ ...b, windowsPrinterShares: { 'Office Printer': '../escape' } })
   })).response.status, 400);

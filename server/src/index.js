@@ -10,6 +10,7 @@ import { rateLimit } from 'express-rate-limit';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { Store } from './store.js';
+import { roomsFor } from './rooms.js';
 import { cleanText, validateRegistration } from './validation.js';
 import { isTunnelKey } from './tunnel-policy.js';
 import { attachMeshTransport } from './mesh-transport.js';
@@ -95,7 +96,7 @@ async function clientAuth(req, res, next) {
 }
 
 function approved(req, res, next) {
-  if (req.client.status !== 'approved' || !req.client.room) return error(res, 403, 'CLIENT_NOT_APPROVED');
+  if (req.client.status !== 'approved' || !roomsFor(req.client).length) return error(res, 403, 'CLIENT_NOT_APPROVED');
   next();
 }
 
@@ -201,9 +202,9 @@ app.delete('/api/admin/rooms/:name', adminAuth, (req, res) => {
   }
 });
 app.post('/api/admin/clients/:id/approve', adminAuth, (req, res) => {
-  const room = cleanText(req.body?.room, 80);
-  if (room.length < 1) return error(res, 400, 'ROOM_REQUIRED');
-  const client = store.approveClient(req.params.id, room);
+  const rooms = req.body?.rooms ?? [req.body?.room];
+  if (!Array.isArray(rooms) || rooms.length < 1 || rooms.length > 100 || rooms.some(r => typeof r !== 'string' || !r.trim() || r.trim().length > 80)) return error(res, 400, 'ROOM_REQUIRED');
+  const client = store.approveClient(req.params.id, rooms.map(r => r.trim()));
   return client ? res.json(client) : error(res, 404, 'CLIENT_NOT_FOUND');
 });
 app.post('/api/admin/clients/:id/reject', adminAuth, (req, res) => {

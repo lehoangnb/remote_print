@@ -269,3 +269,14 @@ tbody tr:hover { background: #fafbfe; }
 .pair-status.is-error { color: #b42318; }
 .pair-footer { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 9px; padding: 16px 26px; border-top: 1px solid var(--line); background: #fafbfe; }
 @media (max-width: 480px) { .pair-heading { padding: 22px 20px 0; } .pair-body { padding: 18px 20px; } .pair-footer { padding: 14px 20px; } }
+
+.access-edit .room-select { min-width: 0; }
+.room-trigger { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 38px; padding: 6px 9px; border: 1px solid #d5ddea; border-radius: 8px; background: white; color: var(--ink); font-size: 14px; text-align: left; }
+.room-selection { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.room-trigger::after { content: ''; width: 6px; height: 6px; flex-shrink: 0; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg); margin: -3px 3px 0 0; }
+.room-trigger[aria-expanded="true"] { border-color: var(--blue); }
+.room-options { position: fixed; inset: auto; margin: 0; padding: 6px; border: 1px solid #d5ddea; border-radius: 9px; background: white; color: var(--ink); box-shadow: 0 8px 24px #14213b26; overflow-y: auto; }
+.room-options::backdrop { background: transparent; }
+.room-choice { display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: 5px; font-size: 14px; overflow-wrap: anywhere; cursor: pointer; }
+.room-choice:hover { background: var(--surface); }
+.room-choice input { flex-shrink: 0; }

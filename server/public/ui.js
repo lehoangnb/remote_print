@@ -80,10 +80,12 @@ export function renderOverview(state) {
   text(elements['client-count'], clients.length);
 }
 
+export const clientRooms = client => Array.isArray(client.rooms) ? client.rooms : client.room ? [client.room] : [];
+
 export function renderRooms(state) {
   const stats = new Map(state.rooms.map(room => [room, 0]));
   for (const client of state.clients) {
-    if (stats.has(client.room)) stats.set(client.room, stats.get(client.room) + 1);
+    for (const room of clientRooms(client)) if (stats.has(room)) stats.set(room, stats.get(room) + 1);
   }
   const signature = JSON.stringify([[...stats], locale()]);
   if (signature !== roomCardsSignature) {
@@ -130,11 +132,36 @@ function createClientRow(client) {
   row.innerHTML = '<td data-label="Máy tính"><div class="machine-name"><span class="machine-avatar"><svg class="icon" aria-hidden="true"><use href="/icons.svg#computer"/></svg></span><strong class="name"></strong></div><small class="machine-id"></small></td>' +
     '<td data-label="Trạng thái"><span class="pill"></span><span class="client-connection"></span><small class="last-seen"></small><small class="machine-tunnel"></small></td>' +
     '<td data-label="Máy in chia sẻ" class="printers-cell"></td>' +
-    '<td data-label="Room &amp; quyền truy cập"><div class="client-access"><div class="access-meta"><span class="access-room">Room: <strong class="current-room"></strong></span><span class="access-draft" hidden>Chưa lưu</span></div><div class="access-edit"><select class="room-select"></select><button type="button" class="button button-primary button-small approve"></button><button type="button" class="button button-danger button-small reject">Từ chối</button></div><p class="row-feedback error" role="alert" hidden></p></div></td>';
+    '<td data-label="Room &amp; quyền truy cập"><div class="client-access"><div class="access-meta"><span class="access-room">Room: <strong class="current-room"></strong></span><span class="access-draft" hidden>Chưa lưu</span></div><div class="access-edit"><div class="room-select" role="group"></div><button type="button" class="button button-primary button-small approve"></button><button type="button" class="button button-danger button-small reject">Từ chối</button></div><p class="row-feedback error" role="alert" hidden></p></div></td>';
   const fields = Object.fromEntries(['name', 'machine-id', 'pill', 'client-connection', 'last-seen', 'machine-tunnel', 'printers-cell', 'approve', 'reject', 'row-feedback', 'access-draft', 'current-room']
     .map(className => [className, row.querySelector('.' + className)]));
   fields.room = row.querySelector('.room-select');
   fields.room.dataset.room = client.id;
+  const trigger = node('button', 'room-trigger');
+  trigger.type = 'button';
+  trigger.append(node('span', 'room-selection'));
+  const options = node('div', 'room-options');
+  options.id = 'room-options-' + client.id;
+  options.setAttribute('popover', 'auto');
+  options.setAttribute('role', 'group');
+  trigger.setAttribute('popovertarget', options.id);
+  trigger.setAttribute('aria-controls', options.id);
+  trigger.setAttribute('aria-expanded', 'false');
+  fields.room.append(trigger, options);
+  options.addEventListener('toggle', event => {
+    const open = event.newState === 'open';
+    trigger.setAttribute('aria-expanded', String(open));
+    if (!open) return;
+    const rect = trigger.getBoundingClientRect();
+    const width = Math.min(Math.max(rect.width, 220), window.innerWidth - 24);
+    options.style.width = width + 'px';
+    options.style.left = Math.max(12, Math.min(rect.left, window.innerWidth - width - 12)) + 'px';
+    const below = window.innerHeight - rect.bottom - 12;
+    const above = rect.top - 12;
+    const placeBelow = below >= Math.min(options.scrollHeight, 260) || below >= above;
+    options.style.maxHeight = Math.min(260, Math.max(60, placeBelow ? below : above)) + 'px';
+    options.style.top = (placeBelow ? rect.bottom + 4 : Math.max(12, rect.top - options.offsetHeight - 4)) + 'px';
+  });
   fields.approve.dataset.approve = client.id;
   fields.reject.dataset.reject = client.id;
   translateTree(row);
@@ -181,7 +208,7 @@ export function renderClients(state) {
     const online = isOnline(client);
     const statusMatch = state.filters.status === 'all' ||
       (state.filters.status === 'online' ? online : state.filters.status === 'offline' ? !online : client.status === state.filters.status);
-    const roomMatch = !state.filters.room || client.room === state.filters.room;
+    const roomMatch = !state.filters.room || clientRooms(client).includes(state.filters.room);
     const searchMatch = !query || [client.name, client.id, ...(client.printers || [])].join(' ').toLocaleLowerCase('vi').includes(query);
     view.row.hidden = !(statusMatch && roomMatch && searchMatch);
     if (!view.row.hidden) visible++;
@@ -189,9 +216,9 @@ export function renderClients(state) {
     text(f['machine-id'], 'ID · ' + client.id.slice(0, 8));
     f['machine-id'].title = client.id;
     statusBadge(f.pill, client.status, clientLabels);
-    text(f['current-room'], client.room || t("Chưa gán"));
-    f['current-room'].title = client.room || t("Chưa gán Room");
-    f['current-room'].classList.toggle('is-empty', !client.room);
+    text(f['current-room'], clientRooms(client).join(", ") || t("Chưa gán"));
+    f['current-room'].title = clientRooms(client).join(", ") || t("Chưa gán Room");
+    f['current-room'].classList.toggle('is-empty', !clientRooms(client).length);
     f['client-connection'].classList.toggle('online', online);
     text(f['client-connection'], online ? 'Online' : 'Offline');
     f['client-connection'].title = t("Kết nối gần nhất: ") + formatDate(client.lastSeenAt);
@@ -200,15 +227,33 @@ export function renderClients(state) {
       client.status !== 'approved' ? t("Tunnel: đã thu hồi") : t("Tunnel: đã ghi danh · ") + client.tunnel.address);
     f['machine-tunnel'].title = t("Ghi danh không xác nhận tunnel đang kết nối.");
     renderPrinterList(view, client.printers || []);
-    const room = state.roomDrafts.has(client.id) ? state.roomDrafts.get(client.id) : client.room || '';
-    updateRoomOptions(f.room, state.rooms, t("Chọn Room…"), room);
-    f.room.setAttribute('aria-label', t("Gán hoặc chuyển Room cho ") + client.name);
-    f['access-draft'].hidden = !(client.status === 'approved' && f.room.value !== (client.room || ''));
+    const selected = state.roomDrafts.get(client.id) ?? clientRooms(client);
+    const changed = JSON.stringify([...selected].sort()) !== JSON.stringify([...clientRooms(client)].sort());
+    const signature = JSON.stringify(state.rooms);
+    if (f.room.dataset.signature !== signature) {
+      f.room.querySelector('.room-options').replaceChildren(...state.rooms.map(room => {
+        const label = node('label', 'room-choice');
+        const input = document.createElement('input'); input.type = 'checkbox'; input.value = room;
+        input.checked = selected.includes(room);
+        label.append(input, document.createTextNode(room)); return label;
+      }));
+      f.room.dataset.signature = signature;
+    }
+    const roomLabel = t("Gán hoặc chuyển Room cho ") + client.name;
+    const trigger = f.room.querySelector('.room-trigger');
+    trigger.setAttribute('aria-label', roomLabel);
+    f.room.querySelector('.room-options').setAttribute('aria-label', roomLabel);
+    for (const input of f.room.querySelectorAll('input')) input.checked = selected.includes(input.value);
+    const selection = selected.join(', ') || t("Chọn Room…");
+    text(f.room.querySelector('.room-selection'), selection);
+    trigger.title = selection;
+    f['access-draft'].hidden = !(client.status === 'approved' && changed);
     f.approve.setAttribute('aria-label', (client.status === 'approved' ? t("Lưu Room cho ") : t("Duyệt ")) + client.name);
     f.reject.setAttribute('aria-label', t("Từ chối ") + client.name);
     const busy = state.busyClients.has(client.id);
-    f.room.disabled = busy;
-    f.approve.disabled = busy || !f.room.value || (client.status === 'approved' && f.room.value === client.room);
+    trigger.disabled = busy;
+    for (const input of f.room.querySelectorAll("input")) input.disabled = busy;
+    f.approve.disabled = busy || !selected.length || (client.status === 'approved' && !changed);
     f.reject.disabled = busy || client.status === 'rejected';
     text(f.approve, busy ? t("Đang lưu…") : client.status === 'approved' ? t("Lưu") : t("Duyệt"));
     const feedback = state.clientErrors.get(client.id);

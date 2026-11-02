@@ -70,6 +70,19 @@ test('mesh relay authorizes each packet, keeps ciphertext opaque, discovers UDP 
     a.ws.send(Buffer.concat([Buffer.from(b.id), opaque]));
     await wait(100); assert.equal(b.frames.length, 1);
     await until(() => b.ws.readyState === WebSocket.CLOSED && a.state.peers.length === 0, 'Room change not revoked');
+
+    const bridge = await client(['one', 'two'], 4);
+    await until(() => bridge.state.peers.length === 2 && a.state.peers.length === 1 && c.state.peers.length === 1, 'Multi-Room membership not discovered');
+    assert.deepEqual(new Set(bridge.state.peers.map(p => p.id)), new Set([a.id, c.id]));
+    bridge.ws.send(Buffer.concat([Buffer.from(a.id), opaque]));
+    bridge.ws.send(Buffer.concat([Buffer.from(c.id), opaque]));
+    await until(() => a.frames.length === 1 && c.frames.length === 1, 'Multi-Room relay did not reach both Rooms');
+    a.ws.send(Buffer.concat([Buffer.from(c.id), opaque]));
+    await wait(100); assert.equal(c.frames.length, 1, 'Membership must not grant transitive access');
+    store.approveClient(bridge.id, ['one']);
+    bridge.ws.send(Buffer.concat([Buffer.from(c.id), opaque]));
+    await wait(100); assert.equal(c.frames.length, 1, 'Removed Room must revoke immediately');
+    await until(() => bridge.ws.readyState === WebSocket.CLOSED && c.state.peers.length === 0, 'Changed membership must invalidate the old session');
     store.enrollTunnel(store.data.clients.find(x => x.id === a.id), Buffer.alloc(32, 7).toString('base64'));
     await until(() => a.ws.readyState === WebSocket.CLOSED, 'Old enrollment key still active');
     c.heartbeat = false;

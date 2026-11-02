@@ -1,6 +1,7 @@
 // Carries opaque client-to-client WireGuard datagrams. The API never receives a
 // WireGuard private key and this relay has no IP forwarding or network privileges.
 import crypto from 'node:crypto';
+import { roomsFor, shareRoom } from './rooms.js';
 import dgram from 'node:dgram';
 import net from 'node:net';
 import { WebSocketServer, WebSocket } from 'ws';
@@ -29,10 +30,10 @@ export function attachMeshTransport(server, store, { udpPort = 51821, udpHost = 
     // Store mutates this enrollment object in place on approval/rejection/key
     // rotation. Avoid an O(client-count) scan on every datagram.
     const c = s.client;
-    return c?.status === 'approved' && c.room && c.tunnelPublicKey === s.key &&
-      c.room === s.room && performance.now() - s.seen < leaseMs;
+    return c?.status === 'approved' && roomsFor(c).length && c.tunnelPublicKey === s.key &&
+      JSON.stringify(roomsFor(c)) === s.membership && performance.now() - s.seen < leaseMs;
   }
-  function allowed(a, b) { return a && b && a !== b && valid(a) && valid(b) && a.room === b.room; }
+  function allowed(a, b) { return a && b && a !== b && valid(a) && valid(b) && shareRoom(a.client, b.client); }
   function send(s, data, binary = false) {
     if (s.ws.readyState !== WebSocket.OPEN) return;
     if (s.ws.bufferedAmount > maxQueue) {
@@ -73,7 +74,7 @@ export function attachMeshTransport(server, store, { udpPort = 51821, udpHost = 
     socket.setTimeout(5000, () => socket.destroy());
     try {
       const c = await store.authenticateClient(req.headers['x-device-id'], req.headers['x-device-secret']);
-      if (!c || !uuid.test(c.id) || c.status !== 'approved' || !c.room || !c.tunnelPublicKey || !c.tunnelAddress) {
+      if (!c || !uuid.test(c.id) || c.status !== 'approved' || !roomsFor(c).length || !c.tunnelPublicKey || !c.tunnelAddress) {
         socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n'); return;
       }
       if (sessions.size >= 256 && !sessions.has(c.id)) {
@@ -82,7 +83,7 @@ export function attachMeshTransport(server, store, { udpPort = 51821, udpHost = 
       socket.setTimeout(0);
       wss.handleUpgrade(req, socket, head, ws => {
         sessions.get(c.id)?.ws.terminate();
-        const s = { id: c.id, client: c, key: c.tunnelPublicKey, address: c.tunnelAddress, room: c.room, ws,
+        const s = { id: c.id, client: c, key: c.tunnelPublicKey, address: c.tunnelAddress, membership: JSON.stringify(roomsFor(c)), ws,
           cookie: crypto.randomBytes(32).toString('hex'), session: crypto.randomUUID(), seen: performance.now(),
           lan: [], endpoint: null, budgetAt: Date.now(), budget: 8 * 1024 * 1024, controls: 0 };
         sessions.set(s.id, s); cookies.set(s.cookie, s);

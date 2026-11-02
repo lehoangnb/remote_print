@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
+import { roomsFor, shareRoom } from './rooms.js';
 
 function hashDeviceSecret(secret) {
   return `sha256:${crypto.createHash('sha256').update(secret, 'utf8').digest('hex')}`;
@@ -34,6 +35,8 @@ export class Store {
     const parsed = JSON.parse(fs.readFileSync(this.dbPath, 'utf8'));
     const clients = (parsed.clients ?? []).map(client => {
       const { publicKey, printerCapabilities, printerFeatures, ...device } = client;
+      device.rooms = [...new Set(roomsFor(device))];
+      device.room = device.rooms[0] ?? null;
       return device;
     });
     if (parsed.schemaVersion !== 2 && (parsed.jobs?.length || (parsed.clients ?? []).some(c => c.publicKey))) {
@@ -43,7 +46,7 @@ export class Store {
     }
     const rooms = [...new Set([
       ...(parsed.rooms ?? []),
-      ...clients.map((x) => x.room).filter(Boolean)
+      ...clients.flatMap(roomsFor)
     ])];
     // An explicitly saved empty list must remain empty after restart.
     if (rooms.length === 0 && !Array.isArray(parsed.rooms)) rooms.push('Default');
@@ -61,9 +64,9 @@ export class Store {
     if (!this.tunnelStateDir) return;
     // The privileged relay only needs routing identities and Room membership.
     // The legacy network controller receives only authorized tunnel metadata.
-    const clients = this.data.clients.filter((client) => client.status === 'approved' && client.room &&
+    const clients = this.data.clients.filter((client) => client.status === 'approved' && roomsFor(client).length &&
       client.tunnelAddress && client.tunnelPublicKey).map((client) => ({
-      status: client.status, room: client.room, lastSeenAt: client.lastSeenAt,
+      status: client.status, room: client.room, rooms: roomsFor(client), lastSeenAt: client.lastSeenAt,
       tunnelAddress: client.tunnelAddress, tunnelPublicKey: client.tunnelPublicKey
     }));
     const target = path.join(this.tunnelStateDir, 'state.json');
@@ -100,6 +103,7 @@ export class Store {
       nativePrinting: input.nativePrinting === true,
       status: 'pending',
       room: null,
+      rooms: [],
       createdAt: now,
       lastSeenAt: now
     };
@@ -132,6 +136,7 @@ export class Store {
       nativePrinting: client.nativePrinting === true,
       status: client.status,
       room: client.room,
+      rooms: roomsFor(client),
       createdAt: client.createdAt,
       lastSeenAt: client.lastSeenAt
     };
@@ -164,7 +169,7 @@ export class Store {
   deleteRoom(name) {
     if (!this.data.rooms.includes(name)) return false;
     // Never remove a Room while any client is assigned to it.
-    if (this.data.clients.some((client) => client.room === name)) throw new Error('ROOM_IN_USE');
+    if (this.data.clients.some((client) => roomsFor(client).includes(name))) throw new Error('ROOM_IN_USE');
     this.data.rooms = this.data.rooms.filter((room) => room !== name);
     this.#save();
     this.audit('room_deleted', { room: name });
@@ -174,13 +179,14 @@ export class Store {
   approveClient(id, room) {
     const client = this.data.clients.find((x) => x.id === id);
     if (!client) return null;
-    const existingRoom = this.data.rooms.find((x) => x.toLocaleLowerCase() === room.toLocaleLowerCase());
-    const canonicalRoom = existingRoom ?? room;
+    const requested = Array.isArray(room) ? room : [room];
+    if (!requested.length || requested.length > 100 || requested.some(r => typeof r !== 'string' || !r.trim() || r.length > 80)) throw new Error('ROOM_REQUIRED');
+    const canonicalRooms = [...new Set(requested.map(r => this.createRoom(r.trim())))];
     client.status = 'approved';
-    client.room = canonicalRoom;
-    if (!existingRoom) this.data.rooms.push(canonicalRoom);
+    client.rooms = canonicalRooms;
+    client.room = canonicalRooms[0];
     this.#save();
-    this.audit('client_approved', { clientId: id, room: canonicalRoom });
+    this.audit('client_approved', { clientId: id, rooms: canonicalRooms });
     return this.adminClient(client);
   }
 
@@ -189,15 +195,16 @@ export class Store {
     if (!client) return null;
     client.status = 'rejected';
     client.room = null;
+    client.rooms = [];
     this.#save();
     this.audit('client_rejected', { clientId: id });
     return this.adminClient(client);
   }
 
   peersFor(client) {
-    if (client.status !== 'approved' || !client.room) return [];
+    if (client.status !== 'approved' || !roomsFor(client).length) return [];
     return this.data.clients
-      .filter((x) => x.id !== client.id && x.status === 'approved' && x.room === client.room)
+      .filter((x) => x.id !== client.id && x.status === 'approved' && shareRoom(x, client))
       .map((x) => this.publicClient(x));
   }
 
@@ -222,9 +229,9 @@ export class Store {
   }
 
   tunnelPeersFor(client) {
-    if (client.status !== 'approved' || !client.room) return [];
+    if (client.status !== 'approved' || !roomsFor(client).length) return [];
     return this.data.clients.filter((peer) => peer.id !== client.id && peer.status === 'approved' &&
-      peer.room === client.room && peer.tunnelPublicKey && peer.tunnelAddress)
+      shareRoom(peer, client) && peer.tunnelPublicKey && peer.tunnelAddress)
       .map((peer) => ({ id: peer.id, address: peer.tunnelAddress }));
   }
 

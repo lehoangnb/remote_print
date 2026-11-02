@@ -78,6 +78,10 @@ không tạo bản trùng. Gỡ máy in ảo trong Windows Settings nếu không
 Nếu Windows thiếu driver PDF, bật **Microsoft Print to PDF** trong Windows
 Features rồi thử lại; client không tải driver ngoài từ Internet.
 
+## Gán nhiều Room
+
+Trong bảng client trên web, mở dropdown Room, tích các Room muốn cấp quyền rồi bấm **Duyệt** hoặc **Lưu**. Một client có thể thuộc nhiều Room. Hai máy chỉ thấy nhau và được phép kết nối khi có ít nhất một Room chung; quyền không lan truyền qua máy trung gian. Bỏ Room và lưu để thu hồi quyền; phải chọn ít nhất một Room khi duyệt. **Từ chối** thu hồi toàn bộ Room. Dữ liệu một Room cũ được chuyển tự động sang danh sách Room khi server khởi động. Cập nhật client để hiển thị đầy đủ các Room; client cũ vẫn nhận danh sách peer do server kiểm soát.
+
 ## Kết nối
 
 Client ưu tiên UDP trực tiếp; khi không xuyên NAT được thì dùng relay WSS tại

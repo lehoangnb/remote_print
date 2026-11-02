@@ -20,6 +20,7 @@ public sealed class ClientState
     public string Name { get; set; } = "";
     public string Status { get; set; } = "pending";
     public string? Room { get; set; }
+    public List<string> Rooms { get; set; } = [];
 }
 
 public sealed class PeerClient
