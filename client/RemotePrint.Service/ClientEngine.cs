@@ -29,10 +29,12 @@ public sealed class ClientEngine : IDisposable, INativeRelayHost
     private Dictionary<string, string> _tunnelPeers = new(StringComparer.OrdinalIgnoreCase);
     private ServiceSnapshot _snapshot = new();
     private string? _shareError;
+    private bool _testPrinterChecked;
     public string DataDirectory => _store.DirectoryPath;
 
     public ClientEngine(IConfiguration configuration, IWindowsShareAccess? shareAccess = null)
     {
+        _testPrinterChecked = configuration.GetValue<bool>("SkipTestPrinterUpgrade");
         _store = new MachineStore(configuration["DataDirectory"]);
         _config = _store.Load();
         _tunnel = new WireGuardManager(_store.DirectoryPath, _config.DeviceId);
@@ -80,6 +82,17 @@ public sealed class ClientEngine : IDisposable, INativeRelayHost
         {
             if (DateTime.UtcNow - _lastScan > TimeSpan.FromSeconds(30))
             {
+                if (!_testPrinterChecked)
+                {
+                    _testPrinterChecked = true;
+                    try
+                    {
+                        if (await TestPrinterSetup.InstallAsync(ct, existingOnly: true) == "UPGRADED")
+                            Log("Đã nâng cấp Remote Print Test sang PDF. Kết nối lại máy in và mở lại Word trên máy gửi.");
+                    }
+                    catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+                    catch (Exception ex) { Log("Cập nhật máy in test PDF lỗi: " + ex.Message); }
+                }
                 _printers = PrinterService.GetServicePrinters().ToList();
                 var shared = _config.SharedPrinters.Where(name => _printers.Contains(name, StringComparer.OrdinalIgnoreCase)).ToList();
                 if (!shared.SequenceEqual(_advertisedPrinters, StringComparer.OrdinalIgnoreCase))
@@ -250,6 +263,17 @@ public sealed class ClientEngine : IDisposable, INativeRelayHost
         await mesh.DisposeAsync();
     }
 
+    public async Task<ServiceReply> ExecuteReplyAsync(ServiceRequest request, CancellationToken ct)
+    {
+        var files = new TestPrintFiles(PrintRelay.TestOutputDirectory);
+        return request.Action switch
+        {
+            "list-test-files" => new(true, TestFiles: files.List()),
+            "read-test-file" => new(true, TestChunk: await files.ReadAsync(request.FileId ?? "", request.Offset, ct)),
+            _ => new(true, await ExecuteAsync(request, ct))
+        };
+    }
+
     public async Task<ServiceSnapshot> ExecuteAsync(ServiceRequest request, CancellationToken ct)
     {
         if (request.Action == "status") return Snapshot;
@@ -258,11 +282,35 @@ public sealed class ClientEngine : IDisposable, INativeRelayHost
             await PrintRelay.InstallAsync(request.PeerId ?? "", request.Printer ?? "", ct);
             Publish(); return Snapshot;
         }
+        if (request.Action == "print-test")
+        {
+            await PrintRelay.PrintTestAsync(request.PeerId ?? "", request.Printer ?? "", ct);
+            Publish(); return Snapshot;
+        }
         await _gate.WaitAsync(ct);
         try
         {
             switch (request.Action)
             {
+                case "install-test-printer":
+                    await TestPrinterSetup.InstallAsync(ct);
+                    _printers = PrinterService.GetServicePrinters().ToList();
+                    _lastScan = DateTime.MinValue;
+                    Log("Đã cài máy in ảo Remote Print Test. Chọn máy in này để chia sẻ trong Room.");
+                    break;
+                case "uninstall-test-printer":
+                    await TestPrinterSetup.UninstallAsync(ct);
+                    _config.SharedPrinters.RemoveAll(name => name.Equals(TestPrinter.Name, StringComparison.OrdinalIgnoreCase));
+                    _store.Save(_config);
+                    _printers = PrinterService.GetServicePrinters().ToList();
+                    _advertisedPrinters.RemoveAll(name => name.Equals(TestPrinter.Name, StringComparison.OrdinalIgnoreCase));
+                    _lastScan = DateTime.MinValue;
+                    _registered = false;
+                    Log("Đã gỡ máy in test. File in thử được giữ lại cho tới khi dọn.");
+                    break;
+                case "clear-test-files":
+                    await PrintRelay.ClearTestFilesAsync(ct);
+                    break;
                 case "configure":
                     var settings = request.Settings ?? throw new InvalidOperationException("Thiếu cấu hình.");
                     var invitation = EnrollmentCode.Parse(settings.ServerUrl.Trim());
@@ -323,6 +371,11 @@ public sealed class ClientEngine : IDisposable, INativeRelayHost
         var snapshot = new ServiceSnapshot
         {
             NativePrinting = true,
+            TestPrinting = true,
+            TestFileAccess = true,
+            TestPdfPrinting = true,
+            TestPrinterInstalled = _printers.Contains(TestPrinter.Name, StringComparer.OrdinalIgnoreCase),
+            TestFileMaintenance = true,
             Settings = new(_config.ComputerName, _config.ServerUrl, _config.SharedPrinters.ToList()),
             State = _state, Connection = _connection, TunnelStatus = _tunnelStatus, Peers = _peers.ToList(), Printers = _printers.ToList(),
             Activity = ReadActivity(), UpdatedAt = DateTime.UtcNow

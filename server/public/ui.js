@@ -1,3 +1,4 @@
+import { t, locale, translateTree } from './i18n.js';
 export const elements = Object.fromEntries([
   'login', 'dashboard', 'login-form', 'login-error', 'username', 'password', 'login-submit',
   'refresh', 'auto-refresh', 'logout', 'updated-at', 'notice', 'notice-text', 'notice-dismiss',
@@ -31,12 +32,12 @@ function node(tag, className, value) {
 
 function statusBadge(element, status, labels) {
   element.className = 'pill' + (statusClasses.has(status) ? ' ' + status : '');
-  text(element, labels[status] || 'Không xác định');
+  text(element, t(labels[status] || 'Không xác định'));
 }
 
 function formatDate(value) {
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString('vi-VN');
+  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString(locale());
 }
 
 export function showNotice(message, isError = false) {
@@ -57,7 +58,7 @@ export function showDashboard(show) {
 }
 
 function updateRoomOptions(select, rooms, placeholder, selected) {
-  const signature = JSON.stringify(rooms);
+  const signature = JSON.stringify([rooms, placeholder]);
   if (select.dataset.options !== signature) {
     const fragment = document.createDocumentFragment();
     fragment.append(new Option(placeholder, ''));
@@ -84,7 +85,7 @@ export function renderRooms(state) {
   for (const client of state.clients) {
     if (stats.has(client.room)) stats.set(client.room, stats.get(client.room) + 1);
   }
-  const signature = JSON.stringify([...stats]);
+  const signature = JSON.stringify([[...stats], locale()]);
   if (signature !== roomCardsSignature) {
     const fragment = document.createDocumentFragment();
     for (const room of state.rooms) {
@@ -92,20 +93,20 @@ export function renderRooms(state) {
       const select = node('button', 'room-card-select');
       select.type = 'button';
       select.dataset.filterRoom = room;
-      const count = node('span', 'room-card-count', stats.get(room) + ' máy');
+      const count = node('span', 'room-card-count', stats.get(room) + t(" máy"));
       select.append(node('strong', 'room-name', room), count);
       const remove = node('button', 'room-delete');
       remove.type = 'button';
       remove.dataset.deleteRoom = room;
-      remove.setAttribute('aria-label', 'Xóa Room ' + room);
-      remove.title = 'Xóa Room ' + room;
+      remove.setAttribute('aria-label', t("Xóa Room ") + room);
+      remove.title = t("Xóa Room ") + room;
       remove.innerHTML = '<svg class="icon" aria-hidden="true"><use href="/icons.svg#trash"/></svg>';
       card.append(select, remove);
       fragment.append(card);
     }
     if (state.rooms.length === 0) {
       const empty = node('div', 'room-empty');
-      empty.append(node('p', '', 'Chưa có Room. Tạo Room đầu tiên để bắt đầu.'));
+      empty.append(node('p', '', t("Chưa có Room. Tạo Room đầu tiên để bắt đầu.")));
       fragment.append(empty);
     }
     elements['room-list'].replaceChildren(fragment);
@@ -119,7 +120,7 @@ export function renderRooms(state) {
   for (const button of elements['room-list'].querySelectorAll('[data-delete-room]')) {
     button.disabled = state.busyRooms.has(button.dataset.deleteRoom);
   }
-  updateRoomOptions(elements['client-room-filter'], state.rooms, 'Tất cả Room', state.filters.room);
+  updateRoomOptions(elements['client-room-filter'], state.rooms, t("Tất cả Room"), state.filters.room);
 }
 
 function createClientRow(client) {
@@ -136,19 +137,20 @@ function createClientRow(client) {
   fields.room.dataset.room = client.id;
   fields.approve.dataset.approve = client.id;
   fields.reject.dataset.reject = client.id;
+  translateTree(row);
   elements.clients.append(row);
   return { row, fields, printerSignature: '' };
 }
 
 function renderPrinterList(view, printers) {
-  const signature = JSON.stringify(printers);
+  const signature = JSON.stringify([printers, locale()]);
   if (view.printerSignature === signature) return;
   view.printerSignature = signature;
   const cell = view.fields['printers-cell'];
   const expanded = Boolean(cell.querySelector('details')?.open);
   cell.replaceChildren();
   if (printers.length === 0) {
-    cell.append(node('span', 'muted', 'Không chia sẻ'));
+    cell.append(node('span', 'muted', t("Không chia sẻ")));
     return;
   }
   const list = node('ul', 'printer-list');
@@ -159,7 +161,7 @@ function renderPrinterList(view, printers) {
     details.open = expanded;
     const remaining = node('ul', 'printer-list');
     for (const printer of printers.slice(2)) remaining.append(node('li', '', printer));
-    details.append(node('summary', '', 'Xem thêm ' + (printers.length - 2) + ' máy in'), remaining);
+    details.append(node('summary', '', t("Xem thêm ") + (printers.length - 2) + t(" máy in")), remaining);
     cell.append(details);
   }
 }
@@ -175,6 +177,7 @@ export function renderClients(state) {
     let view = clientRows.get(client.id);
     if (!view) { view = createClientRow(client); clientRows.set(client.id, view); }
     const f = view.fields;
+    translateTree(view.row);
     const online = isOnline(client);
     const statusMatch = state.filters.status === 'all' ||
       (state.filters.status === 'online' ? online : state.filters.status === 'offline' ? !online : client.status === state.filters.status);
@@ -186,37 +189,37 @@ export function renderClients(state) {
     text(f['machine-id'], 'ID · ' + client.id.slice(0, 8));
     f['machine-id'].title = client.id;
     statusBadge(f.pill, client.status, clientLabels);
-    text(f['current-room'], client.room || 'Chưa gán');
-    f['current-room'].title = client.room || 'Chưa gán Room';
+    text(f['current-room'], client.room || t("Chưa gán"));
+    f['current-room'].title = client.room || t("Chưa gán Room");
     f['current-room'].classList.toggle('is-empty', !client.room);
     f['client-connection'].classList.toggle('online', online);
     text(f['client-connection'], online ? 'Online' : 'Offline');
-    f['client-connection'].title = 'Kết nối gần nhất: ' + formatDate(client.lastSeenAt);
+    f['client-connection'].title = t("Kết nối gần nhất: ") + formatDate(client.lastSeenAt);
     f['last-seen'].hidden = true;
-    text(f['machine-tunnel'], !client.tunnel?.enrolled ? 'Tunnel: chưa ghi danh' :
-      client.status !== 'approved' ? 'Tunnel: đã thu hồi' : 'Tunnel: đã ghi danh · ' + client.tunnel.address);
-    f['machine-tunnel'].title = 'Ghi danh không xác nhận tunnel đang kết nối.';
+    text(f['machine-tunnel'], !client.tunnel?.enrolled ? t("Tunnel: chưa ghi danh") :
+      client.status !== 'approved' ? t("Tunnel: đã thu hồi") : t("Tunnel: đã ghi danh · ") + client.tunnel.address);
+    f['machine-tunnel'].title = t("Ghi danh không xác nhận tunnel đang kết nối.");
     renderPrinterList(view, client.printers || []);
     const room = state.roomDrafts.has(client.id) ? state.roomDrafts.get(client.id) : client.room || '';
-    updateRoomOptions(f.room, state.rooms, 'Chọn Room…', room);
-    f.room.setAttribute('aria-label', 'Gán hoặc chuyển Room cho ' + client.name);
+    updateRoomOptions(f.room, state.rooms, t("Chọn Room…"), room);
+    f.room.setAttribute('aria-label', t("Gán hoặc chuyển Room cho ") + client.name);
     f['access-draft'].hidden = !(client.status === 'approved' && f.room.value !== (client.room || ''));
-    f.approve.setAttribute('aria-label', (client.status === 'approved' ? 'Lưu Room cho ' : 'Duyệt ') + client.name);
-    f.reject.setAttribute('aria-label', 'Từ chối ' + client.name);
+    f.approve.setAttribute('aria-label', (client.status === 'approved' ? t("Lưu Room cho ") : t("Duyệt ")) + client.name);
+    f.reject.setAttribute('aria-label', t("Từ chối ") + client.name);
     const busy = state.busyClients.has(client.id);
     f.room.disabled = busy;
     f.approve.disabled = busy || !f.room.value || (client.status === 'approved' && f.room.value === client.room);
     f.reject.disabled = busy || client.status === 'rejected';
-    text(f.approve, busy ? 'Đang lưu…' : client.status === 'approved' ? 'Lưu' : 'Duyệt');
+    text(f.approve, busy ? t("Đang lưu…") : client.status === 'approved' ? t("Lưu") : t("Duyệt"));
     const feedback = state.clientErrors.get(client.id);
     f['row-feedback'].hidden = !feedback;
     text(f['row-feedback'], feedback || '');
   }
   const empty = elements['clients-empty'];
   empty.hidden = visible > 0;
-  text(empty.querySelector('strong'), state.clients.length ? 'Không tìm thấy máy phù hợp' : 'Chưa có máy client');
-  text(empty.querySelector('p'), state.clients.length ? 'Thử bỏ bộ lọc.' : 'Kết nối Remote Print Client để bắt đầu.');
-  text(elements['client-result-count'], visible + ' / ' + state.clients.length + ' máy');
+  text(empty.querySelector('strong'), state.clients.length ? t("Không tìm thấy máy phù hợp") : t("Chưa có máy client"));
+  text(empty.querySelector('p'), state.clients.length ? t("Thử bỏ bộ lọc.") : t("Kết nối Remote Print Client để bắt đầu."));
+  text(elements['client-result-count'], visible + ' / ' + state.clients.length + t(" máy"));
 }
 
 export function render(state) {

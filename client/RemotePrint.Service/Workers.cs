@@ -105,7 +105,7 @@ public sealed class PipeWorker(ClientEngine engine, ILogger<PipeWorker> logger, 
                 ServiceReply reply;
                 try
                 {
-                    reply = new(true, await engine.ExecuteAsync(request, timeout.Token));
+                    reply = await engine.ExecuteReplyAsync(request, timeout.Token);
                 }
                 catch (Exception ex) { reply = new(false, Error: ex.Message); }
                 await ServiceProtocol.WriteAsync(pipe, reply, timeout.Token);

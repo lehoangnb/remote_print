@@ -34,6 +34,32 @@ public sealed class NativePrintRelay(INativeRelayHost engine, Func<string, strin
     private readonly Dictionary<string, string> _retryErrors = new();
     private TcpListener? _remote;
     public int ListenPort => ((IPEndPoint)_remote!.LocalEndpoint).Port;
+    public string TestOutputDirectory => Path.Combine(Root, "TestPrints");
+    public async Task ClearTestFilesAsync(CancellationToken ct)
+    {
+        await _localCommit.WaitAsync(ct);
+        try { new TestPrintFiles(TestOutputDirectory).Clear(); engine.NativeLog("Đã dọn file in thử trên máy này."); }
+        finally { _localCommit.Release(); }
+    }
+
+    public async Task PrintTestAsync(string peerId, string printer, CancellationToken ct)
+    {
+        // Use the connected Windows queue, so a test follows the same LPR/mesh/
+        // receiving Windows spooler path as an application print job.
+        if (!engine.NativePeerAllowed(peerId, printer)) throw new UnauthorizedAccessException("Máy nhận chưa online/cùng Room.");
+        if (!string.Equals(printer, TestPrinter.Name, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Chọn Remote Print Test trên máy nhận để in thử.");
+        NativeQueue? queue;
+        lock (_queues) queue = _queues.Values.FirstOrDefault(q => q.PeerId == peerId && q.Printer == printer);
+        if (queue is null) throw new InvalidOperationException("Kết nối máy in trước khi in thử.");
+        await NativePrinterSetup.PowerShellAsync("""
+            $q=Get-Printer -Name $a.Queue;
+            if($q.DriverName -ne $a.Driver){throw 'Reconnect Remote Print Test to upgrade its Windows driver to PDF'};
+            """, new { queue.Queue, Driver = TestPrinter.DriverName }, ct);
+        var id = await Task.Run(() => NativeTestPage.Print(queue.Queue, peerId,
+            () => !ct.IsCancellationRequested && engine.NativePeerAllowed(peerId, printer)), ct);
+        engine.NativeLog($"Đã gửi trang thử vào Windows: {queue.Queue}, job {id}.");
+    }
 
     private static void Save<T>(string path, T value)
     {
@@ -125,12 +151,28 @@ public sealed class NativePrintRelay(INativeRelayHost engine, Func<string, strin
                         }
                         else
                         {
-                            Save(receipt, new NativeReceipt("submitting", request.Sha256, 0, request.Printer));
-                            var spool = print ?? NativeRawSpool.Print;
-                            var id = spool(request.Printer, scratch,
-                                job => Save(receipt, new NativeReceipt("submitting", request.Sha256, job, request.Printer)), Authorized);
+                            int id;
+                            if (request.Printer.Equals(TestPrinter.Name, StringComparison.OrdinalIgnoreCase))
+                            {
+                                if (!Authorized()) throw new UnauthorizedAccessException();
+                                if (TestPrintFormat.Inspect(scratch).Format != "pdf")
+                                    throw new InvalidDataException("Máy gửi chưa dùng driver PDF. Kết nối lại Remote Print Test và mở lại ứng dụng in.");
+                                // A PDF virtual destination is already the final
+                                // artifact. v4 PDF drivers do not pass incoming RAW
+                                // PDF back to their port; don't spool it a second time.
+                                var captureId = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(peerId + ":" + request.JobId)))[..32].ToLowerInvariant();
+                                await CommitTestJobCoreAsync(new(TestPrinter.QueueId, captureId), scratch, request.Bytes, token, Authorized);
+                                id = 0; // Durable virtual capture has no receiving Windows spool job.
+                            }
+                            else
+                            {
+                                Save(receipt, new NativeReceipt("submitting", request.Sha256, 0, request.Printer));
+                                var spool = print ?? NativeRawSpool.Print;
+                                id = spool(request.Printer, scratch,
+                                    job => Save(receipt, new NativeReceipt("submitting", request.Sha256, job, request.Printer)), Authorized);
+                                engine.NativeLog($"Đã nhận lệnh in RAW vào Windows: {request.Printer}, job {id}.");
+                            }
                             Save(receipt, new NativeReceipt("accepted", request.Sha256, id, request.Printer));
-                            engine.NativeLog($"Đã nhận lệnh in RAW vào Windows: {request.Printer}, job {id}.");
                             await NativePrintProtocol.WriteAsync(stream, new NativePrintReply(true, JobId: id), token);
                         }
                     }
@@ -177,22 +219,27 @@ public sealed class NativePrintRelay(INativeRelayHost engine, Func<string, strin
                 Save(Path.Combine(Root, "queue-" + id + ".json"), queue);
             }
             if (!engine.NativePeerAllowed(peerId, printer)) throw new UnauthorizedAccessException("Printer permission revoked before installation");
-            await NativePrinterSetup.InstallAsync(reply.Driver, archive, Path.Combine(scratch, "files"), queue.Queue, "RP_" + id, queue.Port, ct);
+            await NativePrinterSetup.InstallAsync(reply.Driver, archive, Path.Combine(scratch, "files"), queue.Queue, "RP_" + id, queue.Port, ct, upgradeTest: printer == TestPrinter.Name);
             engine.NativeLog("Windows đã cài máy in bằng driver gốc: " + queue.Queue);
         }
         finally { if (Directory.Exists(scratch)) Directory.Delete(scratch, true); _install.Release(); }
     }
     private async Task<LprTarget> ResolveLocalJobAsync(string id, CancellationToken ct)
     {
-        NativeQueue queue; lock (_queues)
-            if (!_queues.TryGetValue(id, out queue!)) throw new UnauthorizedAccessException("Unknown local printer queue");
+        string queueName;
+        if (id == TestPrinter.QueueId) queueName = TestPrinter.Name;
+        else
+        {
+            lock (_queues)
+                queueName = _queues.TryGetValue(id, out var queue) ? queue.Queue : throw new UnauthorizedAccessException("Unknown local printer queue");
+        }
         var identity = await NativePrinterSetup.PowerShellAsync("""
             $jobs=@(Get-PrintJob -PrinterName $a.Queue);
             $printing=@($jobs|Where-Object {$_.JobStatus.ToString() -match 'Printing'});
             if($printing.Count -eq 1){$job=$printing[0]}elseif($jobs.Count -eq 1){$job=$jobs[0]}else{throw 'Cannot identify the active Windows spool job'};
             if(!$job.SubmittedTime){throw 'Windows spool submission time unavailable'};
             [string]$job.ID+':'+[string]$job.SubmittedTime.ToUniversalTime().Ticks
-            """, new { queue.Queue }, ct);
+            """, new { Queue = queueName }, ct);
         var jobId = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(id + ":" + identity)))[..32].ToLowerInvariant();
         return new(id, jobId);
     }
@@ -208,6 +255,11 @@ public sealed class NativePrintRelay(INativeRelayHost engine, Func<string, strin
     }
     private async Task CommitLocalJobAsync(LprTarget target, string scratch, long bytes, CancellationToken ct)
     {
+        if (target.QueueId == TestPrinter.QueueId)
+        {
+            await CommitTestJobAsync(target, scratch, bytes, ct);
+            return;
+        }
         await _localCommit.WaitAsync(ct);
         try
         {
@@ -230,6 +282,49 @@ public sealed class NativePrintRelay(INativeRelayHost engine, Func<string, strin
             Save(accepted, pending);
             Save(Path.Combine(Root, "pending-" + target.JobId + ".json"), pending);
             engine.NativeLog("Đã lưu lệnh RAW từ Windows để chuyển tới máy nhận.");
+        }
+        finally { _localCommit.Release(); }
+    }
+
+    // Also used by the socket checks with real LPR data. No pending relay entry:
+    // the virtual destination terminates the job rather than sharing it again.
+    internal Task CommitTestJobAsync(LprTarget target, string scratch, long bytes, CancellationToken ct) =>
+        CommitTestJobCoreAsync(target, scratch, bytes, ct, null);
+
+    private async Task CommitTestJobCoreAsync(LprTarget target, string scratch, long bytes, CancellationToken ct, Func<bool>? authorized)
+    {
+        if (target.QueueId != TestPrinter.QueueId || !Guid.TryParseExact(target.JobId, "N", out _))
+            throw new InvalidDataException("Invalid test spool identity");
+        await _localCommit.WaitAsync(ct);
+        try
+        {
+            Directory.CreateDirectory(TestOutputDirectory);
+            var (format, hasContent) = TestPrintFormat.Inspect(scratch);
+            string hash;
+            await using (var file = File.OpenRead(scratch))
+            {
+                if (file.Length != bytes || bytes is < 1 or > NativePrintProtocol.MaxBytes) throw new InvalidDataException("Invalid test spool length");
+                hash = Convert.ToHexString(await SHA256.HashDataAsync(file, ct));
+            }
+            if (authorized is not null && !authorized()) throw new UnauthorizedAccessException("Print permission revoked before PDF capture");
+            var raw = Path.Combine(TestOutputDirectory, target.JobId + ".raw");
+            if (File.Exists(raw))
+            {
+                await using var prior = File.OpenRead(raw);
+                if (prior.Length != bytes || Convert.ToHexString(await SHA256.HashDataAsync(prior, ct)) != hash)
+                    throw new InvalidDataException("Repeated test spool ID has different data");
+            }
+            else
+            {
+                if (Directory.GetFiles(TestOutputDirectory, "*.raw").Sum(f => new FileInfo(f).Length) + bytes > NativePrintProtocol.MaxBytes * 4)
+                    throw new IOException("Test print storage is full; remove old test files");
+                File.Move(scratch, raw);
+            }
+            var receipt = Path.ChangeExtension(raw, ".json");
+            if (File.Exists(receipt)) return;
+            Save(receipt, new { Printer = TestPrinter.Name, ReceivedAtUtc = DateTime.UtcNow, Bytes = bytes, Sha256 = hash, Format = format, HasContent = hasContent });
+            engine.NativeLog(hasContent ? $"Máy in ảo đã nhận: {bytes} bytes; {raw} ({format})."
+                : "Máy in test nhận dữ liệu trống, không có chữ. Kết nối lại máy in PDF và mở lại ứng dụng trên máy gửi.");
         }
         finally { _localCommit.Release(); }
     }
@@ -268,7 +363,8 @@ public sealed class NativePrintRelay(INativeRelayHost engine, Func<string, strin
                         Save(delivered, new NativeReceipt("accepted", pending.Sha256, reply.JobId));
                         File.Delete(path); File.Delete(Path.Combine(Root, pending.Id + ".raw"));
                         _retryErrors.Remove(path);
-                        engine.NativeLog($"Đã chuyển RAW vào máy nhận: {queue.Printer}, job {reply.JobId}.");
+                        engine.NativeLog(queue.Printer == TestPrinter.Name ? "Đã chuyển PDF tới máy in test trên máy nhận."
+                            : $"Đã chuyển RAW vào máy nhận: {queue.Printer}, job {reply.JobId}.");
                     }
                     catch (Exception ex) when (!ct.IsCancellationRequested)
                     {

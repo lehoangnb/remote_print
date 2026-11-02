@@ -67,7 +67,7 @@ public static class NativePrinterSetup
         }
     }
 
-    public static async Task InstallAsync(NativeDriverInfo driver, string archive, string folder, string queue, string portName, int port, CancellationToken ct)
+    public static async Task InstallAsync(NativeDriverInfo driver, string archive, string folder, string queue, string portName, int port, CancellationToken ct, bool upgradeTest = false)
     {
         var expected = DriverEnvironment;
         if (driver.Environment != expected || Path.GetFileName(driver.InfFile) != driver.InfFile || !driver.InfFile.EndsWith(".inf", StringComparison.OrdinalIgnoreCase))
@@ -76,9 +76,13 @@ public static class NativePrinterSetup
         var inf = Path.Combine(folder, driver.InfFile);
         if (!File.Exists(inf) || Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(inf, ct))) != driver.InfSha256)
             throw new InvalidDataException("Driver INF digest mismatch");
+        // Inbox drivers cannot be staged as OEM packages with pnputil. For the
+        // PDF test printer use Windows' own signed inbox driver on each client.
+        var inboxPdf = driver.Name == TestPrinter.DriverName && driver.InfFile.Equals("prnms009.inf", StringComparison.OrdinalIgnoreCase);
+        if (inboxPdf) await PowerShellAsync(TestPrinterSetup.EnsureDriverScript, new { }, ct);
         await PowerShellAsync("""
             $existing=Get-PrinterDriver | Where-Object { $_.Name -eq $a.Driver -and $_.PrinterEnvironment -eq $a.Environment } | Select-Object -First 1;
-            if(!$existing -or !(Test-Path -LiteralPath $existing.InfPath) -or (Get-FileHash -LiteralPath $existing.InfPath -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $a.Inf -Algorithm SHA256).Hash){
+            if(!$a.InboxPdf -and (!$existing -or !(Test-Path -LiteralPath $existing.InfPath) -or (Get-FileHash -LiteralPath $existing.InfPath -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $a.Inf -Algorithm SHA256).Hash)){
               & "$env:windir\System32\pnputil.exe" /add-driver $a.Inf | Out-Null;
               if($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne 3010){throw 'Windows rejected driver package signature/staging'};
               $hash=(Get-FileHash -LiteralPath $a.Inf -Algorithm SHA256).Hash;
@@ -94,9 +98,15 @@ public static class NativePrinterSetup
             if($p -and ($p.HostAddress -ne '127.0.0.1' -or $p.Protocol -ne 2 -or $p.Queue -ne $a.QueueId)){throw 'Port name belongs to another configuration'};
             if(!$p){Add-PrinterPort -Name $a.PortName -LprHostAddress '127.0.0.1' -LprQueueName $a.QueueId -LprByteCounting};
             $q=Get-Printer | Where-Object Name -eq $a.Queue | Select-Object -First 1;
+            if($q -and $q.PortName -eq $a.PortName -and $q.DriverName -eq $a.Legacy -and $a.UpgradeTest){
+              if(@(Get-PrintJob -PrinterName $a.Queue).Count -gt 0){throw 'Finish or cancel pending test jobs before reconnecting the PDF test printer'};
+              Set-Printer -Name $a.Queue -DriverName $a.Driver;
+              $q=Get-Printer -Name $a.Queue;
+            };
             if($q -and ($q.PortName -ne $a.PortName -or $q.DriverName -ne $a.Driver)){throw 'Queue belongs to another configuration'};
             if(!$q){Add-Printer -Name $a.Queue -DriverName $a.Driver -PortName $a.PortName -PrintProcessor 'winprint' -Datatype 'RAW' -Comment 'RemotePrint native relay'};
             'OK'
-            """, new { Driver = driver.Name, driver.Environment, Inf = inf, Queue = queue, PortName = portName, QueueId = portName[3..] }, ct);
+            """, new { Driver = driver.Name, driver.Environment, Inf = inf, Queue = queue, PortName = portName, QueueId = portName[3..], InboxPdf = inboxPdf,
+                UpgradeTest = upgradeTest && inboxPdf, Legacy = TestPrinter.LegacyDriverName }, ct);
     }
 }

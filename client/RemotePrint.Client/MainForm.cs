@@ -23,11 +23,15 @@ public sealed class MainForm : Form
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 2000 };
     private readonly bool _headless;
     private readonly MenuStrip _menu = new();
-    private readonly ToolStripMenuItem _serviceInstallItem = new("Cài / khởi động dịch vụ");
-    private readonly ToolStripMenuItem _serviceUninstallItem = new("Gỡ cài đặt dịch vụ");
+    private readonly ToolStripMenuItem _serviceInstallItem = new(L.T("Cài / khởi động dịch vụ"));
+    private readonly ToolStripMenuItem _serviceUninstallItem = new(L.T("Gỡ cài đặt dịch vụ"));
+    private readonly ToolStripMenuItem _testPrinterInstallItem = new(L.T("Cài máy in ảo để thử…"));
+    private readonly ToolStripMenuItem _testPrinterUninstallItem = new(L.T("Gỡ máy in test…"));
+    private readonly ToolStripMenuItem _clearTestFilesItem = new(L.T("Dọn file in thử…"));
     private ServiceSnapshot? _snapshot;
     private bool _refreshing, _settingsLoaded, _servicePrompted, _configPrompted, _setupPromptOpen;
     private bool _connectingRemotePrinter;
+    private bool _clearingTestFiles;
     private readonly HashSet<string> _printerDraft = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string> _availablePrinterNames = new(StringComparer.OrdinalIgnoreCase);
     private bool _printerDraftLoaded, _printerDraftDirty, _updatingPrinterList;
@@ -35,19 +39,19 @@ public sealed class MainForm : Form
     private int _printerDraftVersion;
     private string _deviceName = "", _serverUrl = "";
 
-    public Label ServiceStatusText { get; } = NewValue("Đang kiểm tra…");
-    public Label StatusText { get; } = NewValue("Chưa kết nối");
-    public Label RoomText { get; } = NewValue("Chưa được gán");
-    public Label TunnelText { get; } = NewValue("Chưa cấu hình");
+    public Label ServiceStatusText { get; } = NewValue(L.T("Đang kiểm tra…"));
+    public Label StatusText { get; } = NewValue(L.T("Chưa kết nối"));
+    public Label RoomText { get; } = NewValue(L.T("Chưa được gán"));
+    public Label TunnelText { get; } = NewValue(L.T("Chưa cấu hình"));
     public Label PrintersHintText { get; } = new()
     {
         Text = "", AutoSize = false, Dock = DockStyle.Fill, ForeColor = SystemColors.GrayText,
         TextAlign = ContentAlignment.MiddleLeft
     };
-    public Label PeersSummaryText { get; } = NewHint("Chỉ các máy online mới xuất hiện.", 20);
+    public Label PeersSummaryText { get; } = NewHint(L.T("Chỉ các máy online mới xuất hiện."), 20);
     public Label EmptyPeersPanel { get; } = new()
     {
-        Text = "Chưa có máy khác online\r\nKết nối client trên máy khác và duyệt vào cùng Room để in từ xa.",
+        Text = L.T("Chưa có máy khác online\r\nKết nối client trên máy khác và duyệt vào cùng Room để in từ xa."),
         AutoSize = false, Dock = DockStyle.Fill, Visible = false, TextAlign = ContentAlignment.MiddleCenter,
         BackColor = SystemColors.Window
     };
@@ -58,11 +62,16 @@ public sealed class MainForm : Form
     };
     public PeerListBox PeersGrid { get; } = new();
     public ComboBox RemotePrinters { get; } = new() { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
-    public Button ConnectPrinterButton { get; } = NewButton("Kết nối máy in");
+    public Button ConnectPrinterButton { get; } = NewButton(L.T("Kết nối máy in"));
+    public Button PrintTestButton { get; } = new()
+    {
+        Text = L.T("In thử"), Width = 72, Height = ButtonHeight, Enabled = false, Margin = new Padding(0)
+    };
     public WrappedListBox ActivityList { get; } = new() { Font = new Font("Segoe UI", 8.25F) };
+    public Button OpenTestFilesButton { get; } = NewButton(L.T("Mở file in thử…"));
     public Button ScanPrintersButton { get; } = new()
     {
-        Text = "Quét lại", AutoSize = false, Width = 88, Height = ButtonHeight,
+        Text = L.T("Quét lại"), AutoSize = false, Width = 88, Height = ButtonHeight,
         Anchor = AnchorStyles.Right, Margin = new Padding(0)
     };
 
@@ -83,7 +92,7 @@ public sealed class MainForm : Form
         PrintersList.FormattingEnabled = true;
         PrintersList.Format += (_, e) =>
         {
-            if (e.ListItem is string name && !_availablePrinterNames.Contains(name)) e.Value = name + " (không khả dụng)";
+            if (e.ListItem is string name && !_availablePrinterNames.Contains(name)) e.Value = name + L.T(" (không khả dụng)");
         };
         _timer.Tick += async (_, _) => { await RefreshAsync(); await SavePrinterSelectionAsync(); };
         _timer.Start();
@@ -102,6 +111,41 @@ public sealed class MainForm : Form
         _ = RefreshAsync();
     }
 
+    internal event EventHandler? LanguageChanged;
+
+    internal void ApplyLanguage(string language)
+    {
+        var previous = L.Language;
+        if (previous == language) return;
+        L.UseLanguage(language);
+        void TranslateMenu(ToolStripItemCollection items)
+        {
+            foreach (ToolStripItem item in items)
+            {
+                item.Text = L.Retranslate(item.Text ?? "", previous, language);
+                if (item is ToolStripMenuItem menuItem) TranslateMenu(menuItem.DropDownItems);
+            }
+        }
+        void TranslateControls(Control parent)
+        {
+            foreach (Control control in parent.Controls)
+            {
+                if (control is Label or Button or GroupBox)
+                    control.Text = L.Retranslate(control.Text, previous, language);
+                var tip = control.GetTip();
+                if (tip is not null) control.SetTip(L.Retranslate(tip, previous, language));
+                if (control is ToolStrip strip) TranslateMenu(strip.Items);
+                TranslateControls(control);
+            }
+        }
+        SuspendLayout();
+        TranslateControls(this);
+        if (_snapshot is not null) ApplySnapshot(_snapshot);
+        PeersGrid.Invalidate();
+        ResumeLayout(true);
+        LanguageChanged?.Invoke(this, EventArgs.Empty);
+    }
+
     public void StopAgent() => _timer.Stop();
 
     protected override void OnFormClosed(FormClosedEventArgs e)
@@ -116,16 +160,44 @@ public sealed class MainForm : Form
     // actions are needed once per install, not on every visit to the window.
     private void BuildMenu()
     {
-        var configure = new ToolStripMenuItem("Cấu hình máy và server…");
+        var configure = new ToolStripMenuItem(L.T("Cấu hình máy và server…"));
         configure.Click += (_, _) => OpenConfiguration();
-        var settings = new ToolStripMenuItem("Cài đặt");
+        var settings = new ToolStripMenuItem(L.T("Cài đặt"));
         settings.DropDownItems.AddRange([
             configure, new ToolStripSeparator(),
-            _serviceInstallItem, _serviceUninstallItem
+            _serviceInstallItem, _serviceUninstallItem, new ToolStripSeparator(), _testPrinterInstallItem, _testPrinterUninstallItem, _clearTestFilesItem
         ]);
         _serviceInstallItem.Click += InstallService_Click;
         _serviceUninstallItem.Click += UninstallService_Click;
+        _testPrinterInstallItem.Click += async (_, _) => await InstallTestPrinterAsync();
+        _testPrinterUninstallItem.Click += async (_, _) => await UninstallTestPrinterAsync();
+        _clearTestFilesItem.Click += async (_, _) =>
+        {
+            if (_clearingTestFiles) return;
+            if (MessageBox.Show(this, L.T("Xóa tất cả file in thử đã nhận và bản sao đã mở trên máy này?"), L.T("Dọn file in thử"),
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+            _clearTestFilesItem.Enabled = false;
+            _clearingTestFiles = true;
+            try { await TestPrintFilesForm.ClearFilesAsync(_service); }
+            catch (Exception ex) { ShowError(ex); }
+            finally { _clearingTestFiles = false; _clearTestFilesItem.Enabled = _snapshot?.TestFileMaintenance == true; }
+        };
         _menu.Items.Add(settings);
+        var language = new ToolStripMenuItem("Language / Ngôn ngữ");
+        foreach (var (code, label) in new[] { ("vi", "Tiếng Việt"), ("en", "English") })
+        {
+            var item = new ToolStripMenuItem(label) { Checked = L.Language == code };
+            item.Click += (_, _) =>
+            {
+                try { L.SetLanguage(code); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                { MessageBox.Show(L.Message(ex.Message), "Remote Print", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
+                ApplyLanguage(code);
+                foreach (ToolStripMenuItem choice in language.DropDownItems) choice.Checked = choice == item;
+            };
+            language.DropDownItems.Add(item);
+        }
+        _menu.Items.Add(language);
     }
 
     private void BuildLayout()
@@ -140,20 +212,11 @@ public sealed class MainForm : Form
 
         var root = new TableLayoutPanel
         {
-            Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2,
+            Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 1,
             Padding = new Padding(Edge, 8, Edge, Edge)
         };
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-        root.RowStyles.AddRange([
-            new RowStyle(SizeType.AutoSize), new RowStyle(SizeType.Percent, 100F)
-        ]);
-
-        // No refresh button: the timer already polls the service every two seconds.
-        root.Controls.Add(new Label
-        {
-            Text = "Remote Print", AutoSize = true, Font = new Font("Segoe UI", 12F, FontStyle.Bold),
-            Anchor = AnchorStyles.Left, Margin = new Padding(0, 0, 0, ColumnGap)
-        }, 0, 0);
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
 
         var body = new TableLayoutPanel { Dock = DockStyle.Fill, Name = "Body" };
         body.ColumnStyles.AddRange([
@@ -163,7 +226,7 @@ public sealed class MainForm : Form
         body.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
         body.Controls.Add(BuildLeftColumn(), 0, 0);
         body.Controls.Add(BuildRightColumn(), 2, 0);
-        root.Controls.Add(body, 0, 1);
+        root.Controls.Add(body, 0, 0);
 
         // The docking layout walks the children from the last added backwards, so the
         // menu has to come after the Fill panel to keep its strip at the window edge.
@@ -179,7 +242,7 @@ public sealed class MainForm : Form
             new RowStyle(SizeType.Absolute, 150), new RowStyle(SizeType.Percent, 100F)
         ]);
 
-        var statusGroup = NewGroup("Trạng thái máy này");
+        var statusGroup = NewGroup(L.T("Trạng thái máy này"));
         var statusGrid = new TableLayoutPanel
         {
             Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink,
@@ -193,20 +256,20 @@ public sealed class MainForm : Form
             new RowStyle(SizeType.AutoSize), new RowStyle(SizeType.AutoSize)
         ]);
         AddRow(statusGrid, 0, "Windows Service:", ServiceStatusText);
-        AddRow(statusGrid, 1, "Kết nối server:", StatusText);
+        AddRow(statusGrid, 1, L.T("Kết nối server:"), StatusText);
         AddRow(statusGrid, 2, "Room:", RoomText);
         AddRow(statusGrid, 3, "Tunnel:", TunnelText);
         statusGroup.Controls.Add(statusGrid);
         column.Controls.Add(statusGroup, 0, 0);
 
-        var sharedGroup = NewGroup("Máy in chia sẻ");
+        var sharedGroup = NewGroup(L.T("Máy in chia sẻ"));
         var sharedGrid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3 };
         sharedGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
         sharedGrid.RowStyles.AddRange([
             new RowStyle(SizeType.AutoSize), new RowStyle(SizeType.Percent, 100F),
             new RowStyle(SizeType.Absolute, ButtonRow)
         ]);
-        sharedGrid.Controls.Add(NewHint("Chọn máy in để máy cùng Room sử dụng.", 18), 0, 0);
+        sharedGrid.Controls.Add(NewHint(L.T("Chọn máy in để máy cùng Room sử dụng."), 18), 0, 0);
         PrintersList.Dock = DockStyle.Fill;
         sharedGrid.Controls.Add(PrintersList, 0, 1);
         var sharedBottom = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2 };
@@ -230,7 +293,7 @@ public sealed class MainForm : Form
             Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterWidth = 6,
             SplitterDistance = 250, Panel1MinSize = 130, Panel2MinSize = 100, IsSplitterFixed = false
         };
-        var peersGroup = NewGroup("Máy cùng Room");
+        var peersGroup = NewGroup(L.T("Máy cùng Room"));
         peersGroup.Dock = DockStyle.Fill;
         var peersGrid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3 };
         peersGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
@@ -247,24 +310,42 @@ public sealed class MainForm : Form
         EmptyPeersPanel.Dock = DockStyle.Fill;
         peersHost.Controls.Add(EmptyPeersPanel);
         peersGrid.Controls.Add(peersHost, 0, 1);
-        var connectRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2 };
+        var connectRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3 };
         connectRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+        connectRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         connectRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         connectRow.Controls.Add(RemotePrinters, 0, 0);
         connectRow.Controls.Add(ConnectPrinterButton, 1, 0);
+        connectRow.Controls.Add(PrintTestButton, 2, 0);
         ConnectPrinterButton.Enabled = false;
         PeersGrid.SelectedIndexChanged += (_, _) => UpdateRemotePrinters();
         RemotePrinters.SelectedIndexChanged += (_, _) => UpdateConnectButton();
         ConnectPrinterButton.Click += async (_, _) => await ConnectRemotePrinterAsync();
+        PrintTestButton.Click += async (_, _) => await PrintRemoteTestAsync();
         peersGrid.Controls.Add(connectRow, 0, 2);
         peersGroup.Controls.Add(peersGrid);
         split.Panel1.Controls.Add(peersGroup);
 
-        var activityGroup = NewGroup("Hoạt động gần đây");
+        var activityGroup = NewGroup(L.T("Hoạt động gần đây"));
         activityGroup.Dock = DockStyle.Fill;
         ActivityList.Dock = DockStyle.Fill;
         ActivityList.BorderStyle = BorderStyle.FixedSingle;
-        activityGroup.Controls.Add(ActivityList);
+        var activityLayout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2 };
+        activityLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        activityLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        activityLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, ButtonRow));
+        activityLayout.Controls.Add(ActivityList, 0, 0);
+        OpenTestFilesButton.Width = 150;
+        OpenTestFilesButton.Anchor = AnchorStyles.Right;
+        OpenTestFilesButton.Enabled = false;
+        OpenTestFilesButton.Visible = false;
+        OpenTestFilesButton.Click += (_, _) =>
+        {
+            using var dialog = new TestPrintFilesForm(_service);
+            dialog.ShowDialog(this);
+        };
+        activityLayout.Controls.Add(OpenTestFilesButton, 0, 1);
+        activityGroup.Controls.Add(activityLayout);
         split.Panel2.Controls.Add(activityGroup);
         return split;
     }
@@ -314,14 +395,20 @@ public sealed class MainForm : Form
         }
         catch (Exception ex)
         {
-            ServiceStatusText.Text = "Chưa chạy";
-            StatusText.Text = "Chưa kết nối dịch vụ";
-            TunnelText.Text = "Chưa kết nối dịch vụ";
-            _serviceInstallItem.Text = "Cài / khởi động dịch vụ";
+            ServiceStatusText.Text = L.T("Chưa chạy");
+            StatusText.Text = L.T("Chưa kết nối dịch vụ");
+            TunnelText.Text = L.T("Chưa kết nối dịch vụ");
+            _serviceInstallItem.Text = L.T("Cài / khởi động dịch vụ");
             _serviceUninstallItem.Enabled = false;
             // The reason stays out of the layout but one hover away.
-            ServiceStatusText.SetTip(ex.Message);
+            ServiceStatusText.SetTip(L.Message(ex.Message));
             _snapshot = null;
+            OpenTestFilesButton.Enabled = false;
+            OpenTestFilesButton.Visible = false;
+            _testPrinterUninstallItem.Enabled = false;
+            _clearTestFilesItem.Enabled = false;
+            _testPrinterInstallItem.Enabled = false;
+            UpdateConnectButton();
             PeersGrid.Items.Clear();
             ShowEmptyPeers(true);
             if (!_settingsLoaded)
@@ -339,13 +426,18 @@ public sealed class MainForm : Form
     private void ApplySnapshot(ServiceSnapshot snapshot)
     {
         _snapshot = snapshot;
-        ServiceStatusText.Text = "Đang chạy";
-        ServiceStatusText.SetTip(snapshot.NativePrinting ? null : "Cần cập nhật dịch vụ để dùng relay driver/RAW.");
-        StatusText.Text = snapshot.Connection;
-        RoomText.Text = snapshot.State.Room ?? "Chưa được gán";
-        TunnelText.Text = snapshot.TunnelStatus;
-        TunnelText.SetTip(snapshot.TunnelStatus);
-        _serviceInstallItem.Text = "Cập nhật dịch vụ";
+        OpenTestFilesButton.Visible = snapshot.TestPrinterInstalled;
+        OpenTestFilesButton.Enabled = snapshot.TestPrinterInstalled && snapshot.TestFileAccess;
+        _testPrinterUninstallItem.Enabled = snapshot.TestPrinterInstalled && snapshot.TestFileMaintenance && !_installingTestPrinter;
+        _clearTestFilesItem.Enabled = snapshot.TestFileMaintenance && !_clearingTestFiles;
+        _testPrinterInstallItem.Enabled = snapshot.TestPrinting && !_installingTestPrinter;
+        ServiceStatusText.Text = L.T("Đang chạy");
+        ServiceStatusText.SetTip(snapshot.NativePrinting ? null : L.T("Cần cập nhật dịch vụ để dùng relay driver/RAW."));
+        StatusText.Text = L.T(snapshot.Connection);
+        RoomText.Text = snapshot.State.Room ?? L.T("Chưa được gán");
+        TunnelText.Text = L.Message(snapshot.TunnelStatus);
+        TunnelText.SetTip(L.Message(snapshot.TunnelStatus));
+        _serviceInstallItem.Text = L.T("Cập nhật dịch vụ");
         _serviceUninstallItem.Enabled = true;
         if (!_settingsLoaded)
         {
@@ -393,10 +485,10 @@ public sealed class MainForm : Form
         PrintersList.Refresh();
         var pendingShareChange = !_printerDraft.SetEquals(snapshot.Settings.SharedPrinters);
         PrintersHintText.Text = snapshot.Printers.Count == 0
-            ? "Dịch vụ chưa thấy máy in. Cài máy in cho toàn bộ máy tính rồi quét lại."
+            ? L.T("Dịch vụ chưa thấy máy in. Cài máy in cho toàn bộ máy tính rồi quét lại.")
             : pendingShareChange
-                ? "Đang lưu lựa chọn máy in…"
-                : $"{snapshot.Printers.Count} máy in khả dụng cho dịch vụ.";
+                ? L.T("Đang lưu lựa chọn máy in…")
+                : string.Format(L.T("{0} máy in khả dụng cho dịch vụ."), snapshot.Printers.Count);
         if (!SamePeerRows(PeersGrid.Items.Cast<PeerClient>(), snapshot.Peers))
         {
             var selectedId = (PeersGrid.SelectedItem as PeerClient)?.Id;
@@ -412,8 +504,8 @@ public sealed class MainForm : Form
         }
         ShowEmptyPeers(snapshot.Peers.Count == 0);
         UpdateConnectButton();
-        PeersSummaryText.Text = $"{snapshot.Peers.Count} máy online · chỉ hiển thị trong cùng Room";
-        var activity = snapshot.Activity.Select(item => $"{item.At:HH:mm:ss}  {item.Message}").ToList();
+        PeersSummaryText.Text = string.Format(L.T("{0} máy online · chỉ hiển thị trong cùng Room"), snapshot.Peers.Count);
+        var activity = snapshot.Activity.Select(item => $"{item.At:HH:mm:ss}  {L.Message(item.Message)}").ToList();
         if (!ActivityList.Items.Cast<string>().SequenceEqual(activity))
         {
             ActivityList.BeginUpdate();
@@ -443,9 +535,65 @@ public sealed class MainForm : Form
         UpdateConnectButton();
     }
 
-    private void UpdateConnectButton() => ConnectPrinterButton.Enabled =
-        !_connectingRemotePrinter && _snapshot?.NativePrinting == true && _snapshot.TunnelStatus == "Đã kết nối" && PeersGrid.SelectedItem is PeerClient { TunnelAddress: not null }
-        && RemotePrinters.SelectedItem is string;
+    private void UpdateConnectButton()
+    {
+        ConnectPrinterButton.Enabled = !_connectingRemotePrinter && _snapshot?.NativePrinting == true && _snapshot.TunnelStatus == "Đã kết nối"
+            && PeersGrid.SelectedItem is PeerClient { TunnelAddress: not null } && RemotePrinters.SelectedItem is string;
+        PrintTestButton.Enabled = ConnectPrinterButton.Enabled && _snapshot?.TestPrinting == true && _snapshot.TestPdfPrinting
+            && string.Equals(RemotePrinters.SelectedItem as string, TestPrinter.Name, StringComparison.OrdinalIgnoreCase);
+        PrintTestButton.SetTip(L.T("Kết nối Remote Print Test trước, rồi gửi trang thử và xem nhật ký trên máy nhận."));
+    }
+
+    private bool _installingTestPrinter;
+    private async Task UninstallTestPrinterAsync()
+    {
+        if (MessageBox.Show(this, L.T("Gỡ máy in Remote Print Test trên máy này? File đã nhận được giữ lại."),
+                L.T("Gỡ máy in test"), MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+        _installingTestPrinter = true;
+        _testPrinterUninstallItem.Enabled = false;
+        _testPrinterInstallItem.Enabled = false;
+        try
+        {
+            var snapshot = await _service.CallAsync(new("uninstall-test-printer"));
+            if (_printerDraft.Remove(TestPrinter.Name)) _printerDraftVersion++;
+            ApplySnapshot(snapshot);
+        }
+        catch (Exception ex) { ShowError(ex); }
+        finally
+        {
+            _installingTestPrinter = false;
+            _testPrinterInstallItem.Enabled = _snapshot?.TestPrinting == true;
+            _testPrinterUninstallItem.Enabled = _snapshot is { TestPrinterInstalled: true, TestFileMaintenance: true };
+        }
+    }
+    private async Task InstallTestPrinterAsync()
+    {
+        _installingTestPrinter = true;
+        _testPrinterInstallItem.Enabled = false;
+        try
+        {
+            ApplySnapshot(await _service.CallAsync(new("install-test-printer")));
+            MessageBox.Show(this, L.T("Đã cài Remote Print Test. Tích chọn máy in này trong Máy in chia sẻ. Trên client khác cùng Room, kết nối máy in rồi bấm In thử. Xem Hoạt động gần đây ở máy nhận để xác nhận."),
+                "Remote Print", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception ex) { ShowError(ex); }
+        finally { _installingTestPrinter = false; _testPrinterInstallItem.Enabled = _snapshot?.TestPrinting == true; }
+    }
+
+    private async Task PrintRemoteTestAsync()
+    {
+        if (!PrintTestButton.Enabled || PeersGrid.SelectedItem is not PeerClient peer || RemotePrinters.SelectedItem is not string printer) return;
+        _connectingRemotePrinter = true;
+        UpdateConnectButton();
+        try
+        {
+            ApplySnapshot(await _service.CallAsync(new("print-test", PeerId: peer.Id, Printer: printer)));
+            MessageBox.Show(this, L.T("Đã gửi trang thử vào hàng đợi Windows. Xem Hoạt động gần đây trên máy nhận để xác nhận máy in ảo đã nhận dữ liệu."),
+                "Remote Print", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception ex) { ShowError(ex); }
+        finally { _connectingRemotePrinter = false; UpdateConnectButton(); }
+    }
 
     private async Task ConnectRemotePrinterAsync()
     {
@@ -456,9 +604,9 @@ public sealed class MainForm : Form
         try
         {
             await _service.CallAsync(new("connect-printer", PeerId: peer.Id, Printer: printer));
-            MessageBox.Show(this, $"Windows đã kết nối máy in {printer}.", "Remote Print", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, string.Format(L.T("Windows đã kết nối máy in {0}."), printer), "Remote Print", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
-        catch (Exception ex) { MessageBox.Show(this, ex.Message, "Không kết nối được máy in", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        catch (Exception ex) { MessageBox.Show(this, L.Message(ex.Message), L.T("Không kết nối được máy in"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
         finally { _connectingRemotePrinter = false; UpdateConnectButton(); }
     }
 
@@ -523,15 +671,15 @@ public sealed class MainForm : Form
         }
         catch (Exception ex)
         {
-            PrintersHintText.Text = "Chưa lưu được, sẽ thử lại.";
-            PrintersHintText.SetTip(ex.Message);
+            PrintersHintText.Text = L.T("Chưa lưu được, sẽ thử lại.");
+            PrintersHintText.SetTip(L.Message(ex.Message));
         }
         finally { _savingSettings = false; }
     }
 
     private async Task SaveAndConnectAsync()
     {
-        if (_savingSettings) { ShowError(new InvalidOperationException("Đang lưu máy in, hãy thử lại.")); return; }
+        if (_savingSettings) { ShowError(new InvalidOperationException(L.T("Đang lưu máy in, hãy thử lại."))); return; }
         _savingSettings = true;
         var version = _printerDraftVersion;
         try
@@ -576,10 +724,10 @@ public sealed class MainForm : Form
     private async void UninstallService_Click(object? sender, EventArgs e)
     {
         if (MessageBox.Show(this,
-                "Gỡ Windows Service Remote Print và mục khởi động cùng Windows của máy này?\n\n" +
-                "Cấu hình được giữ lại. Máy khác không in tới máy này " +
-                "cho tới khi cài lại dịch vụ.",
-                "Gỡ cài đặt dịch vụ", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+                L.T("Gỡ Windows Service Remote Print và mục khởi động cùng Windows của máy này?\n\n") +
+                L.T("Cấu hình được giữ lại. Máy khác không in tới máy này ") +
+                L.T("cho tới khi cài lại dịch vụ."),
+                L.T("Gỡ cài đặt dịch vụ"), MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
             return;
         SetServiceItems(enabled: false);
         var removed = false;
@@ -589,8 +737,8 @@ public sealed class MainForm : Form
             _settingsLoaded = false;
             removed = true;
             MessageBox.Show(this,
-                "Đã gỡ Windows Service. Dữ liệu cấu hình vẫn nằm trong ProgramData\\RemotePrint.",
-                "Gỡ cài đặt dịch vụ", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                L.T("Đã gỡ Windows Service. Dữ liệu cấu hình vẫn nằm trong ProgramData\\RemotePrint."),
+                L.T("Gỡ cài đặt dịch vụ"), MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
         catch (Exception ex) { ShowError(ex); }
         finally
@@ -609,7 +757,7 @@ public sealed class MainForm : Form
         _serviceUninstallItem.Enabled = enabled;
     }
 
-    private void ShowError(Exception ex) => MessageBox.Show(this, ex.Message, "Remote Print",
+    private void ShowError(Exception ex) => MessageBox.Show(this, L.Message(ex.Message), "Remote Print",
         MessageBoxButtons.OK, MessageBoxIcon.Warning);
 }
 
@@ -667,6 +815,9 @@ public sealed class PeerListBox : ListBox
         base.Dispose(disposing);
     }
 
+    internal static string PeerTitle(PeerClient peer) => string.IsNullOrEmpty(peer.TunnelPath)
+        ? peer.Name : $"{peer.Name} · {L.Message(peer.TunnelPath)}";
+
     protected override void OnDrawItem(DrawItemEventArgs e)
     {
         e.DrawBackground();
@@ -676,7 +827,7 @@ public sealed class PeerListBox : ListBox
         var summaryColor = selected ? SystemColors.HighlightText : SystemColors.GrayText;
         _boldFont ??= new Font(Font, FontStyle.Bold);
         var bounds = new Rectangle(e.Bounds.X + 4, e.Bounds.Y + 2, Math.Max(1, e.Bounds.Width - 8), e.Bounds.Height);
-        var title = string.IsNullOrEmpty(peer.TunnelPath) ? peer.Name : $"{peer.Name} · {peer.TunnelPath}";
+        var title = PeerTitle(peer);
         TextRenderer.DrawText(e.Graphics, title, _boldFont,
             new Rectangle(bounds.X, bounds.Y, bounds.Width, 18), nameColor,
             TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix | TextFormatFlags.VerticalCenter);

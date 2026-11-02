@@ -44,12 +44,18 @@ internal static class Program
         using var tray = new NotifyIcon
         {
             Icon = AppIcon,
-            Text = "Remote Print · quản lý máy in",
+            Text = L.T("Remote Print · quản lý máy in"),
             Visible = true
         };
         tray.ContextMenuStrip = new ContextMenuStrip();
-        tray.ContextMenuStrip.Items.Add("Mở Remote Print", null, (_, _) => ShowManager());
-        tray.ContextMenuStrip.Items.Add("Thoát giao diện (service vẫn chạy)", null, (_, _) => ExitInterface());
+        var openItem = tray.ContextMenuStrip.Items.Add(L.T("Mở Remote Print"), null, (_, _) => ShowManager());
+        var exitItem = tray.ContextMenuStrip.Items.Add(L.T("Thoát giao diện (service vẫn chạy)"), null, (_, _) => ExitInterface());
+        form.LanguageChanged += (_, _) =>
+        {
+            tray.Text = L.T("Remote Print · quản lý máy in");
+            openItem.Text = L.T("Mở Remote Print");
+            exitItem.Text = L.T("Thoát giao diện (service vẫn chạy)");
+        };
         tray.DoubleClick += (_, _) => ShowManager();
 
         void ShowManager()

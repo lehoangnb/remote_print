@@ -1,3 +1,4 @@
+import { t, locale, translateTree } from './i18n.js';
 import { elements as el, render, renderClients, renderRooms, showDashboard, showNotice } from './ui.js';
 
 const state = {
@@ -17,16 +18,17 @@ const pairDialog = document.getElementById('pair-dialog');
 const pairCopy = document.getElementById('pair-copy');
 const pairCreate = document.getElementById('pair-create');
 let pairRevision = 0;
+let lastUpdated = null;
 document.getElementById('pair-open').addEventListener('click', () => pairDialog.showModal());
 document.getElementById('pair-close').addEventListener('click', () => pairDialog.close());
 pairDialog.addEventListener('close', () => {
   pairRevision++; clearTimeout(pairExpiry); pairCode.value = ''; pairCopy.disabled = true;
-  pairStatus.textContent = ''; pairStatus.classList.remove('is-error'); pairCreate.textContent = 'Tạo mã';
+  pairStatus.textContent = ''; pairStatus.classList.remove('is-error'); pairCreate.textContent = t("Tạo mã");
 });
 pairServer.value = location.origin;
 document.getElementById('pair-create').addEventListener('click', async event => {
   event.target.disabled = true;
-  pairCreate.textContent = 'Đang tạo…'; pairStatus.classList.remove('is-error');
+  pairCreate.textContent = t("Đang tạo…"); pairStatus.classList.remove('is-error');
   const revision = pairRevision;
   const token = state.token;
   try {
@@ -35,26 +37,26 @@ document.getElementById('pair-create').addEventListener('click', async event => 
     clearTimeout(pairExpiry);
     pairCode.value = result.code;
     pairCopy.disabled = false;
-    pairStatus.textContent = 'Hết hạn lúc ' + new Date(result.expiresAt).toLocaleTimeString('vi-VN');
-    pairExpiry = setTimeout(() => { pairCode.value = ''; pairCopy.disabled = true; pairStatus.textContent = 'Mã đã hết hạn. Tạo mã mới để ghép nối.'; }, Math.max(0, Date.parse(result.expiresAt) - Date.now()));
-  } catch { if (revision === pairRevision && token === state.token) { pairStatus.textContent = 'Không tạo được mã. Kiểm tra địa chỉ HTTPS hoặc thử lại sau.'; pairStatus.classList.add('is-error'); } }
-  finally { event.target.disabled = false; pairCreate.textContent = pairCode.value ? 'Tạo mã khác' : 'Tạo mã'; }
+    pairStatus.textContent = t("Hết hạn lúc ") + new Date(result.expiresAt).toLocaleTimeString(locale());
+    pairExpiry = setTimeout(() => { pairCode.value = ''; pairCopy.disabled = true; pairStatus.textContent = t("Mã đã hết hạn. Tạo mã mới để ghép nối."); }, Math.max(0, Date.parse(result.expiresAt) - Date.now()));
+  } catch { if (revision === pairRevision && token === state.token) { pairStatus.textContent = t("Không tạo được mã. Kiểm tra địa chỉ HTTPS hoặc thử lại sau."); pairStatus.classList.add('is-error'); } }
+  finally { event.target.disabled = false; pairCreate.textContent = pairCode.value ? t("Tạo mã khác") : t("Tạo mã"); }
 });
 document.getElementById('pair-copy').addEventListener('click', async () => {
   if (!pairCode.value) return;
   pairStatus.classList.remove('is-error');
-  try { await navigator.clipboard.writeText(pairCode.value); pairStatus.textContent = 'Đã sao chép; mã chỉ có hiệu lực 5 phút từ lúc tạo.'; }
-  catch { pairCode.select(); pairStatus.textContent = 'Nhấn Ctrl+C để sao chép mã đã chọn.'; }
+  try { await navigator.clipboard.writeText(pairCode.value); pairStatus.textContent = t("Đã sao chép; mã chỉ có hiệu lực 5 phút từ lúc tạo."); }
+  catch { pairCode.select(); pairStatus.textContent = t("Nhấn Ctrl+C để sao chép mã đã chọn."); }
 });
-const errorMessages = {
-  INVALID_CREDENTIALS: 'Tài khoản hoặc mật khẩu không đúng.',
-  ADMIN_AUTH_FAILED: 'Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại.',
-  ROOM_REQUIRED: 'Hãy nhập tên Room.',
-  ROOM_IN_USE: 'Room đang có máy. Chuyển máy sang Room khác trước khi xóa.',
-  ROOM_NOT_FOUND: 'Không tìm thấy Room. Hãy làm mới danh sách.',
-  CLIENT_NOT_FOUND: 'Không tìm thấy máy client. Hãy làm mới danh sách.',
-  SERVER_ERROR: 'Server gặp lỗi. Hãy thử lại hoặc kiểm tra nhật ký server.'
-};
+const errorMessages = () => ({
+  INVALID_CREDENTIALS: t("Tài khoản hoặc mật khẩu không đúng."),
+  ADMIN_AUTH_FAILED: t("Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại."),
+  ROOM_REQUIRED: t("Hãy nhập tên Room."),
+  ROOM_IN_USE: t("Room đang có máy. Chuyển máy sang Room khác trước khi xóa."),
+  ROOM_NOT_FOUND: t("Không tìm thấy Room. Hãy làm mới danh sách."),
+  CLIENT_NOT_FOUND: t("Không tìm thấy máy client. Hãy làm mới danh sách."),
+  SERVER_ERROR: t("Server gặp lỗi. Hãy thử lại hoặc kiểm tra nhật ký server.")
+});
 
 class ApiError extends Error {
   constructor(message, status) { super(message); this.status = status; }
@@ -69,14 +71,14 @@ async function api(url, options = {}) {
       headers: { 'content-type': 'application/json', ...(requestToken ? { authorization: 'Bearer ' + requestToken } : {}) }
     });
   } catch {
-    throw new ApiError('Không kết nối được server. Kiểm tra kết nối rồi thử lại.', 0);
+    throw new ApiError(t("Không kết nối được server. Kiểm tra kết nối rồi thử lại."), 0);
   }
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
     if (response.status === 401 && url !== '/api/admin/login' && requestToken === state.token)
-      logout('Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại.');
-    throw new ApiError(errorMessages[body.error] || (response.status === 429
-      ? 'Có quá nhiều yêu cầu. Hãy chờ một lúc rồi thử lại.' : 'Thao tác thất bại (HTTP ' + response.status + ').'), response.status);
+      logout(t("Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại."));
+    throw new ApiError(errorMessages()[body.error] || (response.status === 429
+      ? t("Có quá nhiều yêu cầu. Hãy chờ một lúc rồi thử lại.") : t("Thao tác thất bại (HTTP ") + response.status + ').'), response.status);
   }
   return body;
 }
@@ -117,7 +119,7 @@ function logout(message = '') {
 function reportLoadError(error) {
   if (!state.token) return;
   showNotice(error.message, true);
-  el['updated-at'].textContent = 'Không cập nhật được · dữ liệu đang hiển thị có thể đã cũ';
+  el['updated-at'].textContent = t("Không cập nhật được · dữ liệu đang hiển thị có thể đã cũ");
   el['updated-at'].parentElement.classList.add('is-stale');
 }
 
@@ -135,7 +137,8 @@ function load() {
     if (token !== state.token || revision !== state.revision) return;
     state.clients = clients; state.rooms = rooms;
     render(state);
-    el['updated-at'].textContent = 'Cập nhật ' + new Date().toLocaleTimeString('vi-VN');
+    lastUpdated = new Date();
+    el['updated-at'].textContent = t("Cập nhật ") + lastUpdated.toLocaleTimeString(locale());
     el['updated-at'].parentElement.classList.remove('is-stale');
   })();
   const wrapped = operation.finally(() => {
@@ -187,7 +190,7 @@ el.clients.addEventListener('click', async event => {
   const actionToken = state.token;
   const room = state.roomDrafts.has(id) ? state.roomDrafts.get(id) : client.room || '';
   if (approving && !room) {
-    state.clientErrors.set(id, 'Chọn Room trước khi duyệt máy.');
+    state.clientErrors.set(id, t("Chọn Room trước khi duyệt máy."));
     renderClients(state);
     return;
   }
@@ -203,7 +206,7 @@ el.clients.addEventListener('click', async event => {
     state.clients = state.clients.map(item => item.id === id ? updated : item);
     state.roomDrafts.delete(id);
     if (approving && !state.rooms.includes(room)) state.rooms.push(room);
-    showNotice(approving ? 'Đã duyệt ' + client.name + ' vào Room ' + room + '.' : 'Đã từ chối quyền truy cập của ' + client.name + '.');
+    showNotice(approving ? t("Đã duyệt ") + client.name + t(" vào Room ") + room + '.' : t("Đã từ chối quyền truy cập của ") + client.name + '.');
     render(state);
   } catch (error) {
     if (state.token === actionToken) state.clientErrors.set(id, error.message);
@@ -228,7 +231,7 @@ el['room-form'].addEventListener('submit', async event => {
     state.rooms.sort((a, b) => a.localeCompare(b, 'vi'));
     if (el['new-room'].value.trim() === name) el['new-room'].value = '';
     render(state);
-    showNotice('Đã tạo Room ' + result.name + '.');
+    showNotice(t("Đã tạo Room ") + result.name + '.');
     if (document.activeElement === el['room-submit'] || document.activeElement === el['new-room'])
       el['new-room'].focus();
   } catch (error) {
@@ -259,10 +262,10 @@ el['room-list'].addEventListener('click', async event => {
     if (!state.rooms.includes(room) || state.busyRooms.has(room)) return;
     const assigned = state.clients.filter(client => client.room === room).length;
     if (assigned > 0) {
-      showNotice('Room ' + room + ' đang có ' + assigned + ' máy. Chuyển máy sang Room khác trước khi xóa.', true);
+      showNotice('Room ' + room + t(" đang có ") + assigned + t(" máy. Chuyển máy sang Room khác trước khi xóa."), true);
       return;
     }
-    if (!window.confirm('Xóa Room "' + room + '"?')) return;
+    if (!window.confirm(t("Xóa Room \"") + room + '"?')) return;
     const actionToken = state.token;
     state.busyRooms.add(room);
     renderRooms(state);
@@ -279,7 +282,7 @@ el['room-list'].addEventListener('click', async event => {
         el['client-room-filter'].value = '';
       }
       render(state);
-      showNotice('Đã xóa Room ' + room + '.');
+      showNotice(t("Đã xóa Room ") + room + '.');
     } catch (error) {
       if (state.token === actionToken) showNotice(error.message, true);
     } finally {
@@ -318,3 +321,9 @@ if (state.token) {
   startPolling();
   load().catch(reportLoadError);
 }
+
+window.addEventListener('languagechange-local', () => {
+  render(state);
+  if (lastUpdated && !el['updated-at'].parentElement.classList.contains('is-stale'))
+    el['updated-at'].textContent = t("Cập nhật ") + lastUpdated.toLocaleTimeString(locale());
+});

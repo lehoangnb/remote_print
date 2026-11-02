@@ -1,6 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk.Worker">
   <PropertyGroup><TargetFramework>net8.0-windows</TargetFramework><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><OutputType>Exe</OutputType><AllowUnsafeBlocks>true</AllowUnsafeBlocks></PropertyGroup>
   <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>RemotePrint.Checks</_Parameter1>
+    </AssemblyAttribute>
     <ProjectReference Include="../RemotePrint.Transport/RemotePrint.Transport.csproj"/>
     <ProjectReference Include="../RemotePrint.Core/RemotePrint.Core.csproj"/>
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.1"/>

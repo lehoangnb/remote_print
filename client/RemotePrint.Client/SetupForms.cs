@@ -9,16 +9,16 @@ namespace RemotePrint.Client;
 public sealed class DeviceConfigForm : Form
 {
     private readonly TextBox _name = new() { MaxLength = 80 };
-    private readonly TextBox _url = new TextBox { MaxLength = 4096 }.SetTip("Dán mã RPPAIR1. do admin tạo (có hiệu lực 5 phút). Máy đã ghép nối dùng địa chỉ server hiện có.");
-    public Button SaveButton { get; } = MainForm.NewButton("Lưu và kết nối");
-    public Button SkipButton { get; } = MainForm.NewButton("Bỏ qua");
+    private readonly TextBox _url = new TextBox { MaxLength = 4096 }.SetTip(L.T("Dán mã RPPAIR1. do admin tạo (có hiệu lực 5 phút). Máy đã ghép nối dùng địa chỉ server hiện có."));
+    public Button SaveButton { get; } = MainForm.NewButton(L.T("Lưu và kết nối"));
+    public Button SkipButton { get; } = MainForm.NewButton(L.T("Bỏ qua"));
 
     public string ComputerName => _name.Text.Trim();
     public string ServerUrl => _url.Text.Trim();
 
     public DeviceConfigForm(string computerName, string serverUrl, bool headless = false)
     {
-        Text = "Cấu hình máy và server";
+        Text = L.T("Cấu hình máy và server");
         Font = new Font("Segoe UI", 9F);
         BackColor = SystemColors.Control;
         FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -37,21 +37,21 @@ public sealed class DeviceConfigForm : Form
         ]);
         grid.Controls.Add(new Label
         {
-            Text = "Tên máy tính:", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 6, 8, 2)
+            Text = L.T("Tên máy tính:"), AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 6, 8, 2)
         }, 0, 0);
         _name.Text = computerName;
         BindBox(_name, 0);
         grid.Controls.Add(_name, 1, 0);
         grid.Controls.Add(new Label
         {
-            Text = "Địa chỉ server:", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 6, 8, 2)
+            Text = L.T("Địa chỉ server:"), AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 6, 8, 2)
         }, 0, 1);
         _url.Text = serverUrl;
         BindBox(_url, 1);
         grid.Controls.Add(_url, 1, 1);
         grid.Controls.Add(new Label
         {
-            Text = "Máy mới: dán mã ghép nối 5 phút từ admin.", AutoSize = false, Height = 20,
+            Text = L.T("Máy mới: dán mã ghép nối 5 phút từ admin."), AutoSize = false, Height = 20,
             Dock = DockStyle.Fill, ForeColor = SystemColors.GrayText, Margin = new Padding(0, 0, 0, 6)
         }, 1, 2);
         grid.Controls.Add(BuildButtons(), 1, 3);
@@ -99,12 +99,12 @@ public sealed class DeviceConfigForm : Form
 // cannot receive jobs, and installing needs admin rights the user should expect.
 public sealed class SetupNoticeForm : Form
 {
-    public Button InstallButton { get; } = MainForm.NewButton("Cài dịch vụ");
-    public Button SkipButton { get; } = MainForm.NewButton("Bỏ qua");
+    public Button InstallButton { get; } = MainForm.NewButton(L.T("Cài dịch vụ"));
+    public Button SkipButton { get; } = MainForm.NewButton(L.T("Bỏ qua"));
 
     public SetupNoticeForm(bool headless = false)
     {
-        Text = "Cài Windows Service";
+        Text = L.T("Cài Windows Service");
         Font = new Font("Segoe UI", 9F);
         BackColor = SystemColors.Control;
         FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -120,12 +120,12 @@ public sealed class SetupNoticeForm : Form
         ]);
         grid.Controls.Add(new Label
         {
-            Text = "Chưa cài Windows Service", AutoSize = true, Font = new Font("Segoe UI", 11F, FontStyle.Bold),
+            Text = L.T("Chưa cài Windows Service"), AutoSize = true, Font = new Font("Segoe UI", 11F, FontStyle.Bold),
             Margin = new Padding(0, 0, 0, 8)
         }, 0, 0);
         grid.Controls.Add(new Label
         {
-            Text = "Máy khác chỉ in tới máy này khi có Windows Service.\nCài đặt cần quyền quản trị.",
+            Text = L.T("Máy khác chỉ in tới máy này khi có Windows Service.\nCài đặt cần quyền quản trị."),
             AutoSize = false, Dock = DockStyle.Fill, Margin = new Padding(0, 0, 0, 10)
         }, 0, 1);
         var buttons = new TableLayoutPanel

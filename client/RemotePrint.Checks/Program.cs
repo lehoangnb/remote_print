@@ -29,6 +29,9 @@ internal static partial class Program
         {
             case "--mesh-check": RunMeshChecksAsync(root).GetAwaiter().GetResult(); return;
             case "--native-relay-check": CheckNativeRelayAsync(root).GetAwaiter().GetResult(); return;
+            case "--test-printer-check": CheckTestPrinterAsync(root).GetAwaiter().GetResult(); return;
+            case "--pdf-windows-check": CheckPdfWindowsAsync(root, args.Length > 2 ? args[2] : null).GetAwaiter().GetResult(); return;
+            case "--pdf-word-windows-check": CheckPdfWindowsAsync(root, null, wordFixture: true).GetAwaiter().GetResult(); return;
             case "--wireguard-check": RunWireGuardCheck(root).GetAwaiter().GetResult(); return;
             case "--tunnel-config-check": RunWireGuardCheck(null).GetAwaiter().GetResult(); return;
             case "--installer-check": RunInstallerCheck(root); return;
@@ -81,7 +84,7 @@ internal static partial class Program
         var pipeName = "RemotePrint.Checks." + Guid.NewGuid().ToString("N");
         File.WriteAllText(Path.Combine(directory, "access.json"), JsonSerializer.Serialize(new ServiceSettings(WindowsIdentity.GetCurrent().User!.Value)));
         var hostBuilder = Host.CreateApplicationBuilder();
-        hostBuilder.Configuration.AddInMemoryCollection(new Dictionary<string, string?> { ["DataDirectory"] = directory, ["PipeName"] = pipeName });
+        hostBuilder.Configuration.AddInMemoryCollection(new Dictionary<string, string?> { ["DataDirectory"] = directory, ["PipeName"] = pipeName, ["SkipTestPrinterUpgrade"] = "true" });
         hostBuilder.Services.AddSingleton<ClientEngine>();
         hostBuilder.Services.AddHostedService<DiscoveryWorker>();
         hostBuilder.Services.AddHostedService<PipeWorker>();
@@ -95,6 +98,8 @@ internal static partial class Program
             ServiceSnapshot? snapshot = null;
             await WaitMeshAsync(async () => { snapshot = await client.CallAsync(new("status")); return snapshot.State.Status == "approved" && snapshot.Peers.Count == 1; });
             Require(snapshot!.Peers.Single().NativePrinting, "IPC discovers native printer relay support in the approved Room");
+            Require(snapshot.TestFileAccess, "IPC advertises the installed service's test file reader capability");
+            await CheckTestFilePipeAsync(client, directory);
             var invitationJson = JsonSerializer.Serialize(new { version = 1, serverUrl = address,
                 endpoint = "api/client/enroll/" + inviteId, key = inviteKey, expiresAt = DateTime.UtcNow.AddMinutes(5) });
             var invitationCode = "RPPAIR1." + Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(invitationJson)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
@@ -143,6 +148,8 @@ internal static partial class Program
     private static void CheckManager(string root)
     {
         Application.EnableVisualStyles();
+        var originalLanguage = L.Language;
+        L.UseLanguage("vi");
         using var manager = new MainForm(headless: true);
         manager.Show(); manager.StopAgent();
         var snapshot = new ServiceSnapshot { NativePrinting = true, Connection = "Đã kết nối", TunnelStatus = "Đã kết nối",
@@ -171,6 +178,27 @@ internal static partial class Program
         Require(!manager.ConnectPrinterButton.Enabled, "Connection is disabled when the tunnel disconnects");
         snapshot.TunnelStatus = "Đã kết nối"; Apply(snapshot);
         Require(manager.ConnectPrinterButton.Enabled, "Connection becomes available when the tunnel recovers");
+        Require(!manager.PrintTestButton.Enabled, "Test page action does not target a physical printer");
+        snapshot.TestPrinting = true;
+        snapshot.TestPdfPrinting = true;
+        Require(!manager.OpenTestFilesButton.Enabled, "Older services cannot open test files through unsupported IPC");
+        snapshot.TestFileAccess = true; Apply(snapshot);
+        Require(!manager.OpenTestFilesButton.Visible && !manager.OpenTestFilesButton.Enabled, "Opening test files is hidden until a virtual printer is installed");
+        snapshot.TestPrinterInstalled = true; snapshot.TestFileMaintenance = true; Apply(snapshot);
+        Require(manager.OpenTestFilesButton.Visible && manager.OpenTestFilesButton.Enabled, "Installing the virtual printer reveals the received file action");
+        snapshot.TestPrinterInstalled = false; Apply(snapshot);
+        Require(!manager.OpenTestFilesButton.Visible, "Uninstalling the virtual printer hides the file action again");
+        snapshot.TestPrinterInstalled = true; Apply(snapshot);
+        // Replace the row so the UI observes a changed printer list.
+        snapshot.Peers = [new PeerClient { Id = refreshedPeer.Id, Name = refreshedPeer.Name, TunnelAddress = refreshedPeer.TunnelAddress,
+            NativePrinting = true, Printers = [TestPrinter.Name] }];
+        Apply(snapshot);
+        Require(manager.PrintTestButton.Enabled, "Virtual printer selection enables the test page action");
+        snapshot.TunnelStatus = "Mất kết nối"; Apply(snapshot);
+        Require(!manager.PrintTestButton.Enabled, "Test printing is disabled when the tunnel disconnects");
+        snapshot.TunnelStatus = "Đã kết nối"; snapshot.TestPrinting = false; Apply(snapshot);
+        Require(!manager.PrintTestButton.Enabled, "Older services cannot receive unsupported test printing commands");
+        snapshot.TestPrinting = true; Apply(snapshot);
         snapshot.Printers = []; Apply(snapshot);
         var absentIndex = manager.PrintersList.Items.IndexOf("Local queue");
         Require(absentIndex >= 0 && manager.PrintersList.GetItemChecked(absentIndex) &&
@@ -184,6 +212,40 @@ internal static partial class Program
         IEnumerable<Control> Descendants(Control parent) => parent.Controls.Cast<Control>().SelectMany(c => new[] { c }.Concat(Descendants(c)));
         foreach (var button in Descendants(manager).OfType<Button>())
             Require(TextRenderer.MeasureText(button.Text, button.Font).Width + 8 <= button.Width, "Button caption fits: " + button.Text);
+        snapshot.Activity = [new(DateTime.Now, "Đã kết nối server."),
+            new(DateTime.Now, "Tunnel lỗi: Địa chỉ server không hợp lệ."),
+            new(DateTime.Now, "Đã nhận lệnh in RAW vào Windows: Máy in A, job 42.")];
+        snapshot.TunnelStatus = "Đang kết nối relay";
+        Apply(snapshot);
+        var languageEvents = 0;
+        manager.LanguageChanged += (_, _) => languageEvents++;
+        manager.ApplyLanguage("en");
+        Require(manager.ConnectPrinterButton.Text == "Connect printer" && manager.ScanPrintersButton.Text == "Rescan",
+            "Switching to English updates the open window");
+        Require(manager.PrintTestButton.Text == "Print test", "Virtual printer test button switches to English");
+        Require(manager.OpenTestFilesButton.Text == "Open test files…", "Received test file action switches to English");
+        Require(!manager.PrintersList.GetItemChecked(0) && manager.PeersGrid.SelectedItem is PeerClient,
+            "Switching language preserves unsaved printer selection and selected peer");
+        Require(manager.PeersSummaryText.Text.Contains("online clients"), "Dynamic status is refreshed in English");
+        Require(manager.TunnelText.Text == "Connecting to relay", "Relay connection status is translated");
+        Require(PeerListBox.PeerTitle(new PeerClient { Name = "Máy A", TunnelPath = "Trực tiếp" }) == "Máy A · Direct",
+            "Peer route is translated without changing the computer name");
+        Require(manager.ActivityList.Items.Cast<string>().Any(x => x.Contains("Connected to the server.")) &&
+            manager.ActivityList.Items.Cast<string>().Any(x => x.Contains("Tunnel error: Invalid server address.")) &&
+            manager.ActivityList.Items.Cast<string>().Any(x => x.Contains("Submitted RAW print job to Windows: Máy in A, job 42.")),
+            "Activity messages and nested errors are translated while printer names are preserved");
+        Require(L.Message("Mã ghép nối không hợp lệ.") == "Invalid pairing code." &&
+            L.Message("Windows error 123") == "Windows error 123", "Known service errors are translated and unknown errors are preserved");
+        foreach (var button in Descendants(manager).OfType<Button>())
+            Require(TextRenderer.MeasureText(button.Text, button.Font).Width + 8 <= button.Width, "English button caption fits: " + button.Text);
+        manager.ApplyLanguage("vi");
+        Require(manager.ConnectPrinterButton.Text == "Kết nối máy in" && manager.ScanPrintersButton.Text == "Quét lại",
+            "Switching back to Vietnamese updates the same window");
+        Require(manager.TunnelText.Text == "Đang kết nối relay" &&
+            manager.ActivityList.Items.Cast<string>().Any(x => x.Contains("Đã kết nối server.")),
+            "Switching back restores original service messages");
+        Require(languageEvents >= 1, "Language change event updates the tray");
+        manager.ApplyLanguage(originalLanguage);
         var directory = Path.Combine(root, "artifacts", "client-layout"); Directory.CreateDirectory(directory);
         using var bitmap = new System.Drawing.Bitmap(manager.Width, manager.Height);
         manager.DrawToBitmap(bitmap, new System.Drawing.Rectangle(0, 0, manager.Width, manager.Height));
