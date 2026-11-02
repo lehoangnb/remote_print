@@ -16,6 +16,7 @@ import { isTunnelKey } from './tunnel-policy.js';
 import { attachMeshTransport } from './mesh-transport.js';
 import { EnrollmentInvites } from './enrollment.js';
 import { attachClientUpdates } from './client-updates.js';
+import { attachSetupDownload } from './setup-download.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -78,6 +79,11 @@ const httpHeaders = helmet({
 app.use((req, res, next) => (req.secure ? secureHeaders : httpHeaders)(req, res, next));
 app.use(express.json({ limit: '256kb' }));
 app.use(rateLimit({ windowMs: 60_000, limit: 240, standardHeaders: 'draft-8', legacyHeaders: false }));
+// Register before static files so every downloaded setup receives this server's URL.
+attachSetupDownload(app, {
+  setupFile: path.join(here, '..', 'public', 'downloads', 'RemotePrint.Setup.exe'),
+  publicServerUrl: process.env.PUBLIC_SERVER_URL || ''
+});
 app.use(express.static(path.join(here, '..', 'public'), {
   etag: false,
   maxAge: 0,

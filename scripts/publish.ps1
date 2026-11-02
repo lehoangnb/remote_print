@@ -25,6 +25,8 @@ if (-not $SkipClient) {
 }
 
 if (-not $SkipServer) {
+    # Also include a fresh bootstrapper when publishing only the server.
+    if ($SkipClient) { & (Join-Path $PSScriptRoot 'publish-setup.ps1') }
     $docker = Get-Command docker -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not $docker) {
         throw 'Không tìm thấy Docker CLI. Hãy cài Docker và chạy lại.'

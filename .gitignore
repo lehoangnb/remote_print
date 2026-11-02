@@ -21,6 +21,7 @@ logs/
 # ===== Build / publish output =====
 dist/
 artifacts/
+server/public/downloads/
 publish/
 coverage/
 .nyc_output/

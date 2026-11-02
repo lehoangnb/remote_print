@@ -96,6 +96,40 @@ và trước khi đưa vào spooler. Máy bị đổi Room/từ chối hoặc m�
 
 ## Cài đặt và nâng cấp
 
+Máy mới có thể dùng **RemotePrint.Setup.exe** (bộ cài nhỏ, không kèm client/runtime).
+Tải bằng nút **Tải bộ cài client** trên web hoặc lấy `dist/RemotePrint.Setup.exe`,
+chạy trên Windows x64/ARM64 có .NET Framework 4.8. Bản tải từ web tự điền URL của
+server đã tải, kể cả khi chép/đổi tên file EXE; bản `dist` chung có thể nhập URL
+thủ công. Bấm **Tải và cài đặt**. Setup tự chọn kiến trúc Windows, lấy bản mới nhất đã
+phát hành trên server, kiểm tra SHA-256, manifest và phiên bản các assembly,
+tải/cài .NET 8 Desktop Runtime chính thức từ Microsoft nếu thiếu (kiểm tra SHA-512),
+cài service qua UAC rồi mở client. Máy mới vẫn cần mã mời và duyệt Room như dưới đây.
+Chạy lại setup dùng bản server đang phát hành kể cả cùng phiên bản, giữ cấu hình
+service đã có. File setup không chứa mã mời hay khóa thiết bị.
+Khi cài lại, setup đóng giao diện client đã cài trong phiên Windows hiện tại
+để mở đúng bản vừa cài; service chạy độc lập với giao diện.
+
+Build riêng: `./scripts/publish-setup.ps1`; `publish-client.ps1` và `publish.ps1`
+cũng tạo setup và chép vào `server/public/downloads/` để đóng gói vào image server.
+Docker build yêu cầu file setup đã được tạo; khi build bằng Compose trực tiếp,
+chạy `./scripts/publish-setup.ps1` trước `docker compose build`.
+Nút **Tải bộ cài client** có ngay trên trang đăng nhập, không cần tài khoản admin.
+Link chia sẻ trực tiếp là `https://print.example.com/downloads/RemotePrint.Setup.exe`.
+Server gắn URL vào bản EXE trả về, không cần build riêng cho mỗi tên miền.
+Nếu dùng reverse proxy, đặt `PUBLIC_SERVER_URL=https://print.example.com` trong
+`server/.env` để luôn điền URL công khai chính xác. Khi không đặt biến này,
+server lấy scheme/host/cổng của request; `X-Forwarded-Proto` và `X-Forwarded-Host`
+chỉ được dùng khi đã cấu hình `TRUST_PROXY` đúng với proxy tin cậy. URL phải là
+HTTPS origin (HTTP chỉ dùng loopback), không gồm đường dẫn, query hay tài khoản.
+Sau khi triển khai server, phát hành ZIP x64/ARM64 trong **Cập nhật client** trước
+khi đưa setup cho người dùng. Chưa có ZIP đúng kiến trúc thì setup báo rõ và dừng.
+Để điền sẵn địa chỉ khi triển khai: `RemotePrint.Setup.exe --server https://print.example.com`.
+Kiểm tra tải/giải nén mà không cài: `RemotePrint.Setup.exe --download-only --server https://print.example.com --output C:\Temp\RemotePrint-staging`
+(thư mục output phải chưa tồn tại; mã thoát 0 khi thành công, lỗi ghi `error.txt`).
+Setup hỗ trợ VI/EN, chỉ dùng HTTP với loopback để kiểm thử cục bộ.
+Kiểm thử bootstrapper trên Windows sau khi có gói client:
+`node --test server/test/setup-bootstrapper.test.js`.
+
 Máy mới phải ghép nối bằng mã mời: trong trang admin chọn **Tạo mã 5 phút**,
 kiểm tra địa chỉ HTTPS công khai rồi sao chép mã `RPPAIR1.…`. Người dùng dán mã
 vào ô **Địa chỉ server** của client và lưu. Mã chứa URL server, endpoint ngẫu nhiên

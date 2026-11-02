@@ -69,4 +69,5 @@ if ($Runtime -eq 'win-x64') {
 }
 Write-Host "Published client to $outputDirectory"
 Write-Host "Created archive $archivePath"
+& (Join-Path $PSScriptRoot 'publish-setup.ps1')
 
