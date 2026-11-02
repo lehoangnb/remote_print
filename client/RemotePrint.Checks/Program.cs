@@ -236,11 +236,37 @@ internal static partial class Program
         manager.LanguageChanged += (_, _) => languageEvents++;
         manager.ApplyLanguage("en");
         Require(manager.InstalledPrintersItem.Text == "Installed printers…", "Installed printer menu switches to English");
-        var settingsMenu = manager.Controls.OfType<MenuStrip>().Single().Items
-            .OfType<ToolStripMenuItem>().Single(item => item.Name == "_settingsItem");
-        Require(settingsMenu.DropDownItems.OfType<ToolStripMenuItem>()
-                .Single(item => item.Name == "_clientUninstallItem").Text == "Uninstall Remote Print from this PC…",
-            "Full uninstall menu switches to English");
+        var topMenus = manager.Controls.OfType<MenuStrip>().Single().Items.OfType<ToolStripMenuItem>().ToArray();
+        Require(topMenus.Length == 1 && topMenus[0].Name == "_settingsItem" && topMenus[0].Text == "Settings",
+            "MenuStrip has only the Settings top-level menu");
+        var settings = topMenus[0];
+        Require(settings.DropDownItems.Cast<ToolStripItem>().Select(item => item.Name).SequenceEqual(new[]
+            { "_configureItem", "_adminStartupItem", "_groupsSeparator", "_serviceItem", "_printersItem", "_applicationItem", "_languageItem" }),
+            "Settings groups configuration, service, printers, application and language");
+        ToolStripMenuItem Child(ToolStripMenuItem parent, string name) => parent.DropDownItems
+            .OfType<ToolStripMenuItem>().Single(item => item.Name == name);
+        Require(Child(settings, "_configureItem").Text == "Configure device and server…"
+                && Child(settings, "_adminStartupItem").Text == "Always run as administrator",
+            "Settings groups device configuration and admin startup");
+        var service = Child(settings, "_serviceItem");
+        Require(Child(service, "_serviceInstallItem").Text == "Update service"
+                && Child(service, "_serviceUninstallItem").Text == "Uninstall service",
+            "Service menu groups installation and removal");
+        var printers = Child(settings, "_printersItem");
+        Require(Child(printers, "InstalledPrintersItem").Text == "Installed printers…",
+            "Printer menu includes installed-printer management");
+        var testPrinter = Child(printers, "_testPrinterItem");
+        Require(testPrinter.Text == "Test printer" &&
+                testPrinter.DropDownItems.OfType<ToolStripMenuItem>().Select(item => item.Name)
+                    .SequenceEqual(new[] { "_testPrinterInstallItem", "_testPrinterUninstallItem", "_clearTestFilesItem" }),
+            "Test-printer actions share a submenu");
+        var application = Child(settings, "_applicationItem");
+        Require(Child(application, "_checkUpdateItem").Text == "Update client…"
+                && Child(application, "_clientUninstallItem").Text == "Uninstall Remote Print from this PC…",
+            "Application menu groups update and uninstall in English");
+        Require(service.Text == "Service" && printers.Text == "Printers"
+                && application.Text == "Application" && Child(settings, "_languageItem").Text == "Language / Ngôn ngữ",
+            "Nested groups switch to English");
         using (var installed = new InstalledPrintersForm(new ServiceClient("RemotePrint.Unused.Checks")))
         {
             installed.ApplySnapshot(new ServiceSnapshot { InstalledPrinters = [new("id", "Office_Canon")] });

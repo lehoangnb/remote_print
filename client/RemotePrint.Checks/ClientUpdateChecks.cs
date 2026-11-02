@@ -192,10 +192,13 @@ internal static partial class Program
         var previousContext = SynchronizationContext.Current;
         using (var form = new MainForm("RemotePrint.Update.Checks." + Guid.NewGuid().ToString("N"), headless: true))
         {
-            var settings = form.MainMenuStrip!.Items.OfType<System.Windows.Forms.ToolStripMenuItem>().First();
-            var checkItem = settings.DropDownItems.Cast<System.Windows.Forms.ToolStripItem>().Single(item => item.Name == "_checkUpdateItem");
+            var settings = form.MainMenuStrip!.Items.OfType<System.Windows.Forms.ToolStripMenuItem>()
+                .Single(item => item.Name == "_settingsItem");
+            var application = settings.DropDownItems.OfType<System.Windows.Forms.ToolStripMenuItem>()
+                .Single(item => item.Name == "_applicationItem");
+            var checkItem = application.DropDownItems.Cast<System.Windows.Forms.ToolStripItem>().Single(item => item.Name == "_checkUpdateItem");
             Require(checkItem.Enabled && checkItem.Text == "Cập nhật client…",
-                "Settings offers the manual client update action in Vietnamese");
+                "Application menu offers the manual client update action in Vietnamese");
             form.ApplyLanguage("en");
             Require(checkItem.Text == "Update client…", "Manual update menu switches to English");
             form.ApplyLanguage("vi"); form.StopAgent();

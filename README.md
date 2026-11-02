@@ -28,7 +28,7 @@ chuyển gói WireGuard mã hóa, không có khóa riêng hoặc bản tài li�
 ## Máy in ảo để thử giữa các client
 
 1. Cập nhật cả giao diện và service trên các client bằng gói mới.
-2. Trên máy nhận, chọn **Cài đặt > Cài máy in ảo để thử…**. Service tạo máy in
+2. Trên máy nhận, chọn **Cài đặt > Máy in > Máy in thử > Cài máy in ảo để thử…**. Service tạo máy in
    Windows **Remote Print Test**, dùng driver **Microsoft Print To PDF** có sẵn
    trong Windows và cổng LPR chỉ nối tới `127.0.0.1:515`.
 3. Tích chọn **Remote Print Test** trong **Máy in chia sẻ**. Hai client cần
@@ -50,7 +50,7 @@ giữ nguyên. File văn bản từ phiên bản cũ vẫn mở bằng Notepad; 
 chuyển trang được ghi rõ **Trống**. Nút **Mở file in thử** chỉ hiện khi máy này đã
 cài máy in ảo. Cần cập nhật cả client và service để có các tùy chọn mới.
 
-Trong **Cài đặt**, **Gỡ máy in test…** gỡ queue/cổng test và bỏ lựa chọn chia sẻ
+Trong **Cài đặt > Máy in > Máy in thử**, **Gỡ máy in test…** gỡ queue/cổng test và bỏ lựa chọn chia sẻ
 máy in đó; không xóa file đã nhận hoặc driver PDF dùng chung của Windows. Nếu còn
 job đang chờ thì cần hoàn tất/hủy job trước khi gỡ. **Dọn file in thử…** xóa các
 file test/receipt đã nhận và bản sao đã mở của người dùng sau khi xác nhận. Nút
@@ -108,7 +108,7 @@ Sau khi cài, Windows Start Menu có thư mục **Remote Print** với shortcut 
 và **Gỡ cài đặt Remote Print**. Ứng dụng cũng xuất hiện trong **Settings > Apps >
 Installed apps** để gỡ bằng cơ chế chuẩn của Windows. Khi cập nhật, cả hai mục
 được trỏ sang phiên bản mới nhất.
-Có thể gỡ toàn bộ client tại **Cài đặt > Gỡ Remote Print khỏi máy…** trong ứng dụng,
+Có thể gỡ toàn bộ client tại **Cài đặt > Ứng dụng > Gỡ Remote Print khỏi máy…** trong ứng dụng,
 Start Menu hoặc Windows Installed apps. Quy trình hỏi xác nhận/UAC, dừng và gỡ
 Windows Service, bỏ mục tự khởi động, shortcut, đăng ký Installed apps và các
 thư mục phiên bản cài trong `Program Files\RemotePrint`. File đang được Windows
@@ -159,7 +159,7 @@ Client cũ chưa có relay RAW sẽ không hiện máy in để kết nối từ
 Server cần `TUNNEL_MODE=mesh`; hub SMB/RPC cũ không được client mới sử dụng.
 
 Máy Windows cần .NET 8 Desktop Runtime. Giải nén toàn bộ gói x64 hoặc ARM64 tương
-ứng, mở client và chọn **Cài đặt > Cài / khởi động dịch vụ**. Chấp nhận UAC một lần
+ứng, mở client và chọn **Cài đặt > Dịch vụ > Cài / khởi động dịch vụ**. Chấp nhận UAC một lần
 để cài service. Sau đó nhập HTTPS/tên máy, chọn máy in muốn chia sẻ; admin duyệt
 client vào Room. Chọn/bỏ chọn máy in tự lưu qua service mà không restart service.
 
@@ -174,7 +174,7 @@ port `RP_...`; nếu tên trùng máy in khác thì thêm `_2`, `_3`. Bấm **K�
 lại để đổi queue tên cũ sang tên gọn; cần xử lý job Windows đang chờ trước khi đổi.
 Queue relay không được chọn chia sẻ lại để tránh vòng lặp.
 
-Chọn **Cài đặt > Máy in đã cài…**, chọn máy in rồi bấm **Xóa máy in** để gỡ queue
+Chọn **Cài đặt > Máy in > Máy in đã cài…**, chọn máy in rồi bấm **Xóa máy in** để gỡ queue
 đã kết nối qua app trên máy này, kể cả khi client bên kia offline. Service gỡ queue,
 cổng relay không còn dùng và mapping; giữ driver dùng chung và file đã nhận.
 Nếu còn job Windows, RAW đang chờ chuyển hoặc kết quả cần kiểm tra thì xử lý trước
@@ -205,7 +205,7 @@ IPC; client quyết định cập nhật theo quyền thực tế của tiến t
   Khi mở GUI, client báo bản mới và cho chọn cài ngay; chỉ lúc đồng ý mới tải
   rồi yêu cầu UAC. Chọn không để tiếp tục dùng; lần mở GUI tiếp theo có thể báo lại.
 
-Chọn **Cài đặt > Cập nhật client…** trong MenuStrip để chủ động kiểm tra bản mới
+Chọn **Cài đặt > Ứng dụng > Cập nhật client…** trong MenuStrip để chủ động kiểm tra bản mới
 trên server. Nếu có bản mới, client hỏi xác nhận trước khi tải/cài và mở lại;
 nếu chưa có, client thông báo rõ. Không có lịch kiểm tra bản mới riêng. Không cập
 nhật khi client bằng hoặc mới hơn bản trên server. Client kiểm tra kích thước,
