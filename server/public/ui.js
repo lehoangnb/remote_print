@@ -78,6 +78,9 @@ export function renderOverview(state) {
   text(elements['metric-pending'], pending);
   text(elements['room-count'], rooms.length);
   text(elements['client-count'], clients.length);
+  for (const card of document.querySelectorAll('.metric-card[data-client-filter]')) {
+    card.setAttribute('aria-pressed', String(state.filters.status === card.dataset.clientFilter));
+  }
 }
 
 export const clientRooms = client => Array.isArray(client.rooms) ? client.rooms : client.room ? [client.room] : [];
@@ -95,7 +98,8 @@ export function renderRooms(state) {
       const select = node('button', 'room-card-select');
       select.type = 'button';
       select.dataset.filterRoom = room;
-      const count = node('span', 'room-card-count', stats.get(room) + t(" máy"));
+      const machines = stats.get(room);
+      const count = node('span', 'room-card-count', machines + t(machines === 1 ? " máy (số ít)" : " máy"));
       select.append(node('strong', 'room-name', room), count);
       const remove = node('button', 'room-delete');
       remove.type = 'button';
@@ -249,13 +253,16 @@ export function renderClients(state) {
     trigger.title = selection;
     f['access-draft'].hidden = !(client.status === 'approved' && changed);
     f.approve.setAttribute('aria-label', (client.status === 'approved' ? t("Lưu Room cho ") : t("Duyệt ")) + client.name);
-    f.reject.setAttribute('aria-label', t("Từ chối ") + client.name);
+    const revoking = client.status === 'approved';
+    f.reject.setAttribute('aria-label', t(revoking ? "Thu hồi quyền truy cập của " : "Từ chối ") + client.name);
+    text(f.reject, t(revoking ? "Thu hồi" : "Từ chối"));
     const busy = state.busyClients.has(client.id);
     trigger.disabled = busy;
     for (const input of f.room.querySelectorAll("input")) input.disabled = busy;
     f.approve.disabled = busy || !selected.length || (client.status === 'approved' && !changed);
+    f.reject.hidden = client.status === 'rejected';
     f.reject.disabled = busy || client.status === 'rejected';
-    text(f.approve, busy ? t("Đang lưu…") : client.status === 'approved' ? t("Lưu") : t("Duyệt"));
+    text(f.approve, busy ? t("Đang lưu…") : client.status === 'approved' ? t("Lưu Room") : t("Duyệt"));
     const feedback = state.clientErrors.get(client.id);
     f['row-feedback'].hidden = !feedback;
     text(f['row-feedback'], feedback || '');
@@ -265,6 +272,7 @@ export function renderClients(state) {
   text(empty.querySelector('strong'), state.clients.length ? t("Không tìm thấy máy phù hợp") : t("Chưa có máy client"));
   text(empty.querySelector('p'), state.clients.length ? t("Thử bỏ bộ lọc.") : t("Kết nối Remote Print Client để bắt đầu."));
   text(elements['client-result-count'], visible + ' / ' + state.clients.length + t(" máy"));
+  elements['clear-filters'].disabled = !state.filters.search.trim() && state.filters.status === 'all' && !state.filters.room;
 }
 
 export function render(state) {

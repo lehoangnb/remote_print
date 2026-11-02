@@ -23,6 +23,18 @@ const updatesDialog = document.getElementById('updates-dialog');
 const updateStatus = document.getElementById('updates-status');
 const updateCurrent = document.getElementById('updates-current');
 const updatePublish = document.getElementById('updates-publish');
+const toolsMenu = document.getElementById('tools-menu');
+document.addEventListener('click', event => {
+  if (toolsMenu.open && !toolsMenu.contains(event.target)) toolsMenu.open = false;
+});
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && toolsMenu.open) {
+    toolsMenu.open = false;
+    toolsMenu.querySelector('summary').focus();
+  }
+});
+toolsMenu.querySelectorAll('.tools-popup a, .tools-popup button').forEach(item =>
+  item.addEventListener('click', () => { toolsMenu.open = false; }));
 let updateUpload = null;
 let releases = [];
 function renderReleases() {
@@ -260,7 +272,8 @@ el.clients.addEventListener('click', async event => {
     state.clients = state.clients.map(item => item.id === id ? updated : item);
     state.roomDrafts.delete(id);
     if (approving) for (const room of updated.rooms) if (!state.rooms.includes(room)) state.rooms.push(room);
-    showNotice(approving ? t("Đã duyệt ") + client.name + t(" vào Room ") + rooms.join(", ") + '.' : t("Đã từ chối quyền truy cập của ") + client.name + '.');
+    showNotice(approving ? t("Đã duyệt ") + client.name + t(" vào Room ") + rooms.join(", ") + '.' :
+      t(client.status === 'approved' ? "Đã thu hồi quyền truy cập của " : "Đã từ chối quyền truy cập của ") + client.name + '.');
     render(state);
   } catch (error) {
     if (state.token === actionToken) state.clientErrors.set(id, error.message);
@@ -299,8 +312,7 @@ function syncClientFilters() {
     status: el['client-status-filter'].value,
     room: el['client-room-filter'].value
   };
-  renderRooms(state);
-  renderClients(state);
+  render(state);
 }
 el['client-search'].addEventListener('input', syncClientFilters);
 el['client-status-filter'].addEventListener('change', syncClientFilters);

@@ -28,17 +28,28 @@
   <div id="dashboard" class="app-shell" hidden>
     <main id="main-content" class="workspace">
       <header id="overview" class="page-header">
-        <div class="header-identity"><img class="brand-mark" src="/remote-print-logo.png" alt=""><h1>Remote Print <span>Quản trị</span></h1></div>
+        <div class="header-identity"><img class="brand-mark" src="/remote-print-logo.png" alt=""><div><h1>Remote Print</h1><p>Quản trị hệ thống</p></div></div>
         <div class="header-actions">
-          <label class="auto-refresh"><input id="auto-refresh" type="checkbox" checked>Tự động</label>
-          <button id="refresh" type="button" class="button button-secondary"><svg class="icon" aria-hidden="true"><use href="/icons.svg#refresh"/></svg>Làm mới</button>
-          <a href="/downloads/RemotePrint.Setup.exe" download class="button button-secondary">Tải bộ cài client</a>
-          <button id="updates-open" type="button" class="button button-secondary">Cập nhật client</button>
-          <button id="logout" type="button" class="button button-ghost"><svg class="icon" aria-hidden="true"><use href="/icons.svg#logout"/></svg>Đăng xuất</button>
           <label class="language-picker"><select class="language-select" aria-label="Language / Ngôn ngữ"><option value="vi">Tiếng Việt</option><option value="en">English</option></select></label>
+          <button id="logout" type="button" class="button button-ghost"><svg class="icon" aria-hidden="true"><use href="/icons.svg#logout"/></svg>Đăng xuất</button>
         </div>
       </header>
-      <div class="update-line"><span class="connection-dot" aria-hidden="true"></span><span id="updated-at">Đang tải…</span></div>
+      <div class="command-bar" role="group" aria-label="Thao tác quản trị">
+        <div class="command-primary">
+          <button id="pair-open" type="button" class="button button-primary"><span class="button-plus" aria-hidden="true">+</span>Thêm client</button>
+          <span class="command-separator" aria-hidden="true"></span>
+          <button id="refresh" type="button" class="button button-secondary"><svg class="icon" aria-hidden="true"><use href="/icons.svg#refresh"/></svg>Làm mới</button>
+          <label class="auto-refresh"><input id="auto-refresh" type="checkbox" checked>Tự động</label>
+          <details id="tools-menu" class="tools-menu">
+            <summary class="button button-secondary">Công cụ<span class="chevron" aria-hidden="true"></span></summary>
+            <div class="tools-popup">
+              <a href="/downloads/RemotePrint.Setup.exe" download>Tải bộ cài client</a>
+              <button id="updates-open" type="button">Cập nhật client</button>
+            </div>
+          </details>
+        </div>
+        <div class="update-line" aria-live="polite"><span class="connection-dot" aria-hidden="true"></span><span id="updated-at">Đang tải…</span></div>
+      </div>
       <div id="notice" class="notice" role="status" hidden><span id="notice-text"></span><button id="notice-dismiss" type="button" aria-label="Đóng thông báo">×</button></div>
 
       <section class="metrics" aria-label="Tổng quan hệ thống">
@@ -47,21 +58,20 @@
         <button class="metric-card" type="button" data-client-filter="pending"><span class="metric-icon amber"><svg class="icon" aria-hidden="true"><use href="/icons.svg#clock"/></svg></span><span class="metric-label">Chờ duyệt</span><strong id="metric-pending">—</strong></button>
       </section>
 
-      <section id="rooms-panel" class="panel rooms-panel" aria-labelledby="rooms-title">
-        <div class="section-heading">
-          <h2 id="rooms-title">Room <span id="room-count" class="count-badge">0</span></h2>
+      <div class="content-grid">
+        <section id="rooms-panel" class="panel rooms-panel" aria-labelledby="rooms-title">
+          <div class="section-heading"><h2 id="rooms-title">Room <span id="room-count" class="count-badge">0</span></h2></div>
           <form id="room-form" class="room-form">
             <label class="sr-only" for="new-room">Tên Room mới</label>
             <input id="new-room" name="room" maxlength="80" placeholder="Tên Room mới" autocomplete="off" required>
             <button id="room-submit" type="submit" class="button button-primary"><span aria-hidden="true">+</span>Tạo Room</button>
           </form>
-        </div>
-        <div id="room-list" class="room-list" aria-label="Danh sách Room"></div>
-        <p id="room-error" class="field-error" role="alert"></p>
-      </section>
+          <div id="room-list" class="room-list" aria-label="Danh sách Room"></div>
+          <p id="room-error" class="field-error" role="alert"></p>
+        </section>
 
-      <section id="clients-panel" class="panel" aria-labelledby="clients-title">
-        <div class="section-heading"><h2 id="clients-title">Máy client <span id="client-count" class="count-badge">0</span></h2><button id="pair-open" type="button" class="button button-primary"><span aria-hidden="true">+</span>Thêm client</button></div>
+        <section id="clients-panel" class="panel" aria-labelledby="clients-title">
+        <div class="section-heading"><h2 id="clients-title">Máy client <span id="client-count" class="count-badge">0</span></h2></div>
         <div class="filters">
           <div class="search-field"><svg class="icon" aria-hidden="true"><use href="/icons.svg#search"/></svg><label class="sr-only" for="client-search">Tìm máy client</label><input id="client-search" type="search" placeholder="Tìm máy client…" autocomplete="off"></div>
           <label class="sr-only" for="client-status-filter">Trạng thái máy</label>
@@ -75,7 +85,8 @@
           <div id="clients-empty" class="empty-state"><svg class="empty-icon" aria-hidden="true"><use href="/icons.svg#computer"/></svg><strong>Đang tải máy client…</strong><p>Dữ liệu sẽ xuất hiện khi kết nối với server.</p></div>
         </div>
         <div class="panel-footer"><span id="client-result-count">Đang tải…</span></div>
-      </section>
+        </section>
+      </div>
 
     </main>
   </div>

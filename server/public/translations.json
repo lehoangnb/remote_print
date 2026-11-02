@@ -1,5 +1,13 @@
 {
   "vi": {
+    " máy (số ít)": " máy",
+    "Quản trị hệ thống": "Quản trị hệ thống",
+    "Thao tác quản trị": "Thao tác quản trị",
+    "Công cụ": "Công cụ",
+    "Lưu Room": "Lưu Room",
+    "Thu hồi": "Thu hồi",
+    "Thu hồi quyền truy cập của ": "Thu hồi quyền truy cập của ",
+    "Đã thu hồi quyền truy cập của ": "Đã thu hồi quyền truy cập của ",
     "Hãy đóng client cũ rồi mở lại Remote Print.": "Hãy đóng client cũ rồi mở lại Remote Print.",
     "Tải bộ cài client": "Tải bộ cài client",
     "Bộ cài chỉ hỗ trợ Windows x64 và ARM64.": "Bộ cài chỉ hỗ trợ Windows x64 và ARM64.",
@@ -386,6 +394,14 @@
     "Không khôi phục được dịch vụ cũ: ": "Không khôi phục được dịch vụ cũ: "
   },
   "en": {
+    " máy (số ít)": " client",
+    "Quản trị hệ thống": "System administration",
+    "Thao tác quản trị": "Administration actions",
+    "Công cụ": "Tools",
+    "Lưu Room": "Save Rooms",
+    "Thu hồi": "Revoke",
+    "Thu hồi quyền truy cập của ": "Revoke access for ",
+    "Đã thu hồi quyền truy cập của ": "Revoked access for ",
     "Hãy đóng client cũ rồi mở lại Remote Print.": "Close the old client, then reopen Remote Print.",
     "Tải bộ cài client": "Download client setup",
     "Bộ cài chỉ hỗ trợ Windows x64 và ARM64.": "Setup supports Windows x64 and ARM64 only.",
