@@ -95,6 +95,8 @@ internal static class Program
         });
 
         if (!args.Contains("--background")) ShowManager();
+        // Background mode never raises Load, but must still poll the service.
+        form.StartAgent();
         Application.Run(context);
         form.StopAgent();
         return 0;

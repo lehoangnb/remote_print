@@ -1,38 +1,16 @@
 namespace RemotePrint.Client;
 
-public sealed class InstalledPrintersForm : Form
+public sealed partial class InstalledPrintersForm : Form
 {
-    private readonly ServiceClient _service;
-    internal readonly ListBox Printers = new() { Dock = DockStyle.Fill, DisplayMember = nameof(InstalledPrinter.Name), HorizontalScrollbar = true };
-    internal readonly Button RemoveButton = MainForm.NewButton(L.T("Xóa máy in"));
-    private readonly Button _refresh = MainForm.NewButton(L.T("Làm mới"));
-    private readonly Label _status = new() { Dock = DockStyle.Fill, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft };
+    private readonly ServiceClient _service = new();
     private bool _busy;
 
-    public InstalledPrintersForm(ServiceClient service)
+    public InstalledPrintersForm()
     {
-        _service = service;
-        Text = L.T("Máy in đã cài");
+        InitializeComponent();
+        if (UiHelpers.IsDesignMode(this)) return;
         Icon = Program.AppIcon;
-        Font = new Font("Segoe UI", 9F);
-        ClientSize = new Size(560, 300);
-        MinimumSize = new Size(480, 260);
-        StartPosition = FormStartPosition.CenterParent;
-        ShowInTaskbar = false;
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(12), ColumnCount = 1, RowCount = 3 };
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
-        layout.Controls.Add(Printers, 0, 0);
-        layout.Controls.Add(_status, 0, 1);
-        var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft };
-        var close = MainForm.NewButton(L.T("Đóng"));
-        close.DialogResult = DialogResult.Cancel;
-        buttons.Controls.AddRange([close, RemoveButton, _refresh]);
-        layout.Controls.Add(buttons, 0, 2);
-        Controls.Add(layout);
-        CancelButton = close;
+        L.Apply(this);
         Printers.SelectedIndexChanged += (_, _) => UpdateButtons();
         _refresh.Click += async (_, _) => await RefreshPrintersAsync();
         RemoveButton.Click += async (_, _) =>
@@ -49,8 +27,13 @@ public sealed class InstalledPrintersForm : Form
             catch (Exception ex) { if (!IsDisposed) _status.Text = L.Message(ex.Message); }
             finally { if (!IsDisposed) { _busy = false; UpdateButtons(); } }
         };
-        Shown += async (_, _) => await RefreshPrintersAsync();
+        Shown += async (_, _) => { if (!UiHelpers.IsDesignMode(this)) await RefreshPrintersAsync(); };
         UpdateButtons();
+    }
+
+    public InstalledPrintersForm(ServiceClient service) : this()
+    {
+        _service = service;
     }
 
     internal void ApplySnapshot(ServiceSnapshot snapshot)

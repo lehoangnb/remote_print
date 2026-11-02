@@ -8,6 +8,9 @@ namespace RemotePrint.Client;
 // component, remember each text for tests, and register styles one at a time.
 public static class UiHelpers
 {
+    internal static bool IsDesignMode(Control control) =>
+        System.ComponentModel.LicenseManager.UsageMode == System.ComponentModel.LicenseUsageMode.Designtime || control.Site?.DesignMode == true;
+
     private sealed record TipText(string? Text);
 
     private static readonly ToolTip Tips = new();

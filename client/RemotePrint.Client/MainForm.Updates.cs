@@ -5,7 +5,6 @@ namespace RemotePrint.Client;
 
 public sealed partial class MainForm
 {
-    internal readonly ToolStripMenuItem _checkUpdateItem = new(L.T("Kiểm tra cập nhật…"));
     private DateTime _nextUpdateCheck = DateTime.MinValue;
     private string _updateServer = "";
     private readonly HashSet<string> _notifiedUpdates = [];
@@ -53,25 +52,18 @@ public sealed partial class MainForm
             Directory.CreateDirectory(staging);
             var archive = Path.Combine(staging, "package.zip");
             var package = Path.Combine(staging, "package");
-            using var progressForm = new Form { Text = L.T("Cập nhật ứng dụng"), Width = 430, Height = 160,
-                FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false, MinimizeBox = false, ControlBox = false,
-                StartPosition = FormStartPosition.CenterParent, Font = Font, Icon = Program.AppIcon };
-            var label = new Label { Text = L.T("Đang tải bản cập nhật…"), Dock = DockStyle.Top, Height = 36, Padding = new Padding(12, 8, 0, 0) };
-            var progressBar = new ProgressBar { Dock = DockStyle.Top, Height = 22 };
-            var cancel = new Button { Text = L.T("Hủy"), Dock = DockStyle.Bottom, Height = 30 };
-            cancel.Click += (_, _) => _updateCancellation?.Cancel();
-            progressForm.Controls.AddRange([progressBar, label, cancel]);
+            using var progressForm = new UpdateProgressForm();
+            progressForm.CancelRequested += (_, _) => _updateCancellation?.Cancel();
             progressForm.Show(this);
             Enabled = false;
             SetServiceItems(false);
             try
             {
-                await updater.DownloadAsync(_serverUrl, release, archive, new Progress<int>(value => { if (!progressBar.IsDisposed) progressBar.Value = value; }), ct);
-                label.Text = L.T("Đang kiểm tra gói cập nhật…");
+                await updater.DownloadAsync(_serverUrl, release, archive, new Progress<int>(progressForm.ReportProgress), ct);
+                progressForm.ShowVerification();
                 await Task.Run(() => ClientUpdater.ExtractAndVerify(archive, package, release, ct), ct);
                 ct.ThrowIfCancellationRequested();
-                label.Text = L.T("Đang cài đặt; hãy xác nhận yêu cầu quyền quản trị…");
-                cancel.Enabled = false;
+                progressForm.ShowInstallation();
                 var installed = await ElevatedSetup.RunAsync(SetupOperation.InstallService, null, Path.Combine(package, "RemotePrint.Client.exe"));
                 if (string.IsNullOrWhiteSpace(installed) || !File.Exists(installed)) throw new InvalidOperationException(L.T("Không xác định được ứng dụng đã cập nhật để khởi động lại."));
                 var restart = new ProcessStartInfo(installed) { UseShellExecute = false };

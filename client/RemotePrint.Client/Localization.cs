@@ -20,6 +20,33 @@ internal static class L
         catch (IOException) { return "vi"; }
     }
     internal static string T(string value) => Translate(Language, value);
+    // Designer files keep editable Vietnamese captions. Translate them only at runtime,
+    // so the designer can round-trip its own code without executing application logic.
+    internal static void Apply(Control root, ToolTip? toolTip = null)
+    {
+        void TranslateItems(ToolStripItemCollection items)
+        {
+            foreach (ToolStripItem item in items)
+            {
+                item.Text = T(item.Text ?? "");
+                if (item is ToolStripDropDownItem dropDown) TranslateItems(dropDown.DropDownItems);
+            }
+        }
+        void TranslateControl(Control control)
+        {
+            if (control is Form or Label or Button or GroupBox) control.Text = T(control.Text);
+            if (control is ToolStrip strip) TranslateItems(strip.Items);
+            if (control is ListView list)
+                foreach (ColumnHeader column in list.Columns) column.Text = T(column.Text);
+            if (toolTip is not null)
+            {
+                var text = toolTip.GetToolTip(control);
+                if (!string.IsNullOrEmpty(text)) toolTip.SetToolTip(control, T(text));
+            }
+            foreach (Control child in control.Controls) TranslateControl(child);
+        }
+        TranslateControl(root);
+    }
     internal static string Translate(string language, string value) => Strings.TryGetValue(language, out var entries) && entries.TryGetValue(value, out var translated) ? translated : value;
     // Service messages keep their protocol text; translate known whole messages or
     // known prefixes at the UI boundary, leaving device names and OS errors intact.

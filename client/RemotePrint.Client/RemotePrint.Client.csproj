@@ -17,6 +17,24 @@
     <Compile Remove="Models.cs;RemotePrintApi.cs;PrinterService.cs;ConfigService.cs" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Update="MainForm.cs;DeviceConfigForm.cs;SetupNoticeForm.cs;InstalledPrintersForm.cs;TestPrintFilesForm.cs;UpdateProgressForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Update="MainForm.Designer.cs"><DependentUpon>MainForm.cs</DependentUpon></Compile>
+    <Compile Update="DeviceConfigForm.Designer.cs"><DependentUpon>DeviceConfigForm.cs</DependentUpon></Compile>
+    <Compile Update="SetupNoticeForm.Designer.cs"><DependentUpon>SetupNoticeForm.cs</DependentUpon></Compile>
+    <Compile Update="InstalledPrintersForm.Designer.cs"><DependentUpon>InstalledPrintersForm.cs</DependentUpon></Compile>
+    <Compile Update="TestPrintFilesForm.Designer.cs"><DependentUpon>TestPrintFilesForm.cs</DependentUpon></Compile>
+    <Compile Update="UpdateProgressForm.Designer.cs"><DependentUpon>UpdateProgressForm.cs</DependentUpon></Compile>
+    <Compile Update="MainForm.Updates.cs"><DependentUpon>MainForm.cs</DependentUpon></Compile>
+    <EmbeddedResource Update="MainForm.resx"><DependentUpon>MainForm.cs</DependentUpon></EmbeddedResource>
+    <EmbeddedResource Update="DeviceConfigForm.resx"><DependentUpon>DeviceConfigForm.cs</DependentUpon></EmbeddedResource>
+    <EmbeddedResource Update="SetupNoticeForm.resx"><DependentUpon>SetupNoticeForm.cs</DependentUpon></EmbeddedResource>
+    <EmbeddedResource Update="InstalledPrintersForm.resx"><DependentUpon>InstalledPrintersForm.cs</DependentUpon></EmbeddedResource>
+    <EmbeddedResource Update="TestPrintFilesForm.resx"><DependentUpon>TestPrintFilesForm.cs</DependentUpon></EmbeddedResource>
+    <EmbeddedResource Update="UpdateProgressForm.resx"><DependentUpon>UpdateProgressForm.cs</DependentUpon></EmbeddedResource>
+  </ItemGroup>
+  <ItemGroup>
     <!-- The installer seams (IServiceRegistrar) are exercised
          by the Checks suite with fakes instead of a real service control manager. -->
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">

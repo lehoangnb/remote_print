@@ -1,4 +1,3 @@
-using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
@@ -11,24 +10,9 @@ namespace RemotePrint.Client;
 // named pipe, so closing the window hides it and keeps the service running.
 public sealed partial class MainForm : Form
 {
-    private const int Edge = 12;
-    private const int ColumnGap = 10;
-
-    // A themed button loses ~6 px to its own border, and stacked Vietnamese diacritics
-    // need that room back, so every action row reserves 31 px to land at 25 px tall.
-    private const int ButtonRow = 31;
-    private const int ButtonHeight = 25;
-
-    private readonly ServiceClient _service;
-    private readonly System.Windows.Forms.Timer _timer = new() { Interval = 2000 };
+    private readonly ServiceClient _service = new();
     private readonly bool _headless;
-    private readonly MenuStrip _menu = new();
-    private readonly ToolStripMenuItem _serviceInstallItem = new(L.T("Cài / khởi động dịch vụ"));
-    private readonly ToolStripMenuItem _serviceUninstallItem = new(L.T("Gỡ cài đặt dịch vụ"));
-    private readonly ToolStripMenuItem _testPrinterInstallItem = new(L.T("Cài máy in ảo để thử…"));
-    private readonly ToolStripMenuItem _testPrinterUninstallItem = new(L.T("Gỡ máy in test…"));
-    internal readonly ToolStripMenuItem InstalledPrintersItem = new(L.T("Máy in đã cài…")) { Enabled = false };
-    private readonly ToolStripMenuItem _clearTestFilesItem = new(L.T("Dọn file in thử…"));
+    private bool _agentStarted;
     private ServiceSnapshot? _snapshot;
     private bool _refreshing, _settingsLoaded, _servicePrompted, _configPrompted, _setupPromptOpen;
     private bool _connectingRemotePrinter;
@@ -40,54 +24,24 @@ public sealed partial class MainForm : Form
     private int _printerDraftVersion;
     private string _deviceName = "", _serverUrl = "";
 
-    public Label ServiceStatusText { get; } = NewValue(L.T("Đang kiểm tra…"));
-    public Label StatusText { get; } = NewValue(L.T("Chưa kết nối"));
-    public Label RoomText { get; } = NewValue(L.T("Chưa được gán"));
-    public Label TunnelText { get; } = NewValue(L.T("Chưa cấu hình"));
-    public Label PrintersHintText { get; } = new()
+    public MainForm()
     {
-        Text = "", AutoSize = false, Dock = DockStyle.Fill, ForeColor = SystemColors.GrayText,
-        TextAlign = ContentAlignment.MiddleLeft
-    };
-    public Label PeersSummaryText { get; } = NewHint(L.T("Chỉ các máy online mới xuất hiện."), 20);
-    public Label EmptyPeersPanel { get; } = new()
-    {
-        Text = L.T("Chưa có máy khác online\r\nKết nối client trên máy khác và duyệt vào cùng Room để in từ xa."),
-        AutoSize = false, Dock = DockStyle.Fill, Visible = false, TextAlign = ContentAlignment.MiddleCenter,
-        BackColor = SystemColors.Window
-    };
-    public CheckedListBox PrintersList { get; } = new()
-    {
-        CheckOnClick = true, IntegralHeight = false, BorderStyle = BorderStyle.FixedSingle,
-        BackColor = SystemColors.Window, HorizontalScrollbar = true
-    };
-    public PeerListBox PeersGrid { get; } = new();
-    public ComboBox RemotePrinters { get; } = new()
-    {
-        DropDownStyle = ComboBoxStyle.DropDownList, Anchor = AnchorStyles.Left | AnchorStyles.Right,
-        Margin = new Padding(0, 0, 6, 0)
-    };
-    public Button ConnectPrinterButton { get; } = NewButton(L.T("Kết nối máy in"));
-    public Button PrintTestButton { get; } = new()
-    {
-        Text = L.T("In thử"), Width = 72, Height = ButtonHeight, Enabled = false, Margin = new Padding(0)
-    };
-    public WrappedListBox ActivityList { get; } = new() { Font = new Font("Segoe UI", 8.25F) };
-    public Button OpenTestFilesButton { get; } = NewButton(L.T("Mở file in thử…"));
-    public Button ScanPrintersButton { get; } = new()
-    {
-        Text = L.T("Quét lại"), AutoSize = false, Width = 88, Height = ButtonHeight,
-        Anchor = AnchorStyles.Right, Margin = new Padding(0)
-    };
-
-    public MainForm(string? pipeName = null, bool headless = false)
-    {
+        InitializeComponent();
+        if (UiHelpers.IsDesignMode(this)) return;
         Icon = Program.AppIcon;
-        _service = new ServiceClient(pipeName);
-        _headless = headless;
-        BuildMenu();
-        BuildLayout();
-        RoomText.AutoEllipsis = true;
+        Text = $"{Text} {ClientUpdater.CurrentVersion}";
+        L.Apply(this);
+        WireMenuEvents();
+        ScanPrintersButton.Click += ScanPrintersButton_Click;
+        PeersGrid.SelectedIndexChanged += (_, _) => UpdateRemotePrinters();
+        RemotePrinters.SelectedIndexChanged += (_, _) => UpdateConnectButton();
+        ConnectPrinterButton.Click += async (_, _) => await ConnectRemotePrinterAsync();
+        PrintTestButton.Click += async (_, _) => await PrintRemoteTestAsync();
+        OpenTestFilesButton.Click += (_, _) =>
+        {
+            using var dialog = new TestPrintFilesForm(_service);
+            dialog.ShowDialog(this);
+        };
         PrintersList.ItemCheck += (_, e) =>
         {
             if (_updatingPrinterList || !_printerDraftLoaded || PrintersList.Items[e.Index] is not string name) return;
@@ -101,19 +55,37 @@ public sealed partial class MainForm : Form
             if (e.ListItem is string name && !_availablePrinterNames.Contains(name)) e.Value = name + L.T(" (không khả dụng)");
         };
         _timer.Tick += async (_, _) => { if (_updateBusy) return; await RefreshAsync(); await SavePrinterSelectionAsync(); await CheckScheduledUpdateAsync(); };
-        _timer.Start();
         FormClosing += (_, e) =>
         {
             if (e.CloseReason != CloseReason.UserClosing) return;
             e.Cancel = true;
             Hide();
         };
+    }
+
+    public MainForm(string? pipeName = null, bool headless = false) : this()
+    {
+        _service = new ServiceClient(pipeName);
+        _headless = headless;
         if (headless)
         {
             StartPosition = FormStartPosition.Manual;
             Location = new Point(-2400, -2400);
             ShowInTaskbar = false;
         }
+    }
+
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+        StartAgent();
+    }
+
+    internal void StartAgent()
+    {
+        if (_agentStarted || IsDisposed || UiHelpers.IsDesignMode(this)) return;
+        _agentStarted = true;
+        _timer.Start();
         _ = RefreshAsync();
     }
 
@@ -164,16 +136,9 @@ public sealed partial class MainForm : Form
 
     // One-off machine setup lives in a menu instead of a wall of buttons: the
     // actions are needed once per install, not on every visit to the window.
-    private void BuildMenu()
+    private void WireMenuEvents()
     {
-        var configure = new ToolStripMenuItem(L.T("Cấu hình máy và server…"));
-        configure.Click += (_, _) => OpenConfiguration();
-        var settings = new ToolStripMenuItem(L.T("Cài đặt"));
-        settings.DropDownItems.AddRange([
-            configure, new ToolStripSeparator(),
-            _serviceInstallItem, _serviceUninstallItem, new ToolStripSeparator(), InstalledPrintersItem,
-            _testPrinterInstallItem, _testPrinterUninstallItem, _clearTestFilesItem
-        ]);
+        _configureItem.Click += (_, _) => OpenConfiguration();
         _serviceInstallItem.Click += InstallService_Click;
         _serviceUninstallItem.Click += UninstallService_Click;
         _testPrinterInstallItem.Click += async (_, _) => await InstallTestPrinterAsync();
@@ -195,213 +160,22 @@ public sealed partial class MainForm : Form
             catch (Exception ex) { ShowError(ex); }
             finally { _clearingTestFiles = false; _clearTestFilesItem.Enabled = _snapshot?.TestFileMaintenance == true; }
         };
-        _menu.Items.Add(settings);
-        var language = new ToolStripMenuItem("Language / Ngôn ngữ");
-        foreach (var (code, label) in new[] { ("vi", "Tiếng Việt"), ("en", "English") })
-        {
-            var item = new ToolStripMenuItem(label) { Checked = L.Language == code };
-            item.Click += (_, _) =>
-            {
-                try { L.SetLanguage(code); }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                { MessageBox.Show(L.Message(ex.Message), "Remote Print", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
-                ApplyLanguage(code);
-                foreach (ToolStripMenuItem choice in language.DropDownItems) choice.Checked = choice == item;
-            };
-            language.DropDownItems.Add(item);
-        }
-        _menu.Items.Add(language);
-        settings.DropDownItems.Add(new ToolStripSeparator());
-        settings.DropDownItems.Add(_checkUpdateItem);
+        _vietnameseItem.Checked = L.Language == "vi";
+        _englishItem.Checked = L.Language == "en";
+        _vietnameseItem.Click += (_, _) => SelectLanguage("vi");
+        _englishItem.Click += (_, _) => SelectLanguage("en");
         _checkUpdateItem.Click += async (_, _) => await CheckForUpdateAsync(manual: true);
     }
 
-    private void BuildLayout()
+    private void SelectLanguage(string code)
     {
-        Text = $"Remote Print {ClientUpdater.CurrentVersion}";
-        Font = new Font("Segoe UI", 9F);
-        BackColor = SystemColors.Control;
-        StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(820, 560);
-        MinimumSize = new Size(700, 470);
-        MainMenuStrip = _menu;
-
-        var root = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 1,
-            Padding = new Padding(Edge, 8, Edge, Edge)
-        };
-        root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-
-        var body = new TableLayoutPanel { Dock = DockStyle.Fill, Name = "Body" };
-        body.ColumnStyles.AddRange([
-            new ColumnStyle(SizeType.Absolute, 292F), new ColumnStyle(SizeType.Absolute, 12F),
-            new ColumnStyle(SizeType.Percent, 100F)
-        ]);
-        body.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-        body.Controls.Add(BuildLeftColumn(), 0, 0);
-        body.Controls.Add(BuildRightColumn(), 2, 0);
-        root.Controls.Add(body, 0, 0);
-
-        // The docking layout walks the children from the last added backwards, so the
-        // menu has to come after the Fill panel to keep its strip at the window edge.
-        Controls.Add(root);
-        Controls.Add(_menu);
+        try { L.SetLanguage(code); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        { MessageBox.Show(L.Message(ex.Message), "Remote Print", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
+        ApplyLanguage(code);
+        _vietnameseItem.Checked = code == "vi";
+        _englishItem.Checked = code == "en";
     }
-
-    private Control BuildLeftColumn()
-    {
-        var column = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1 };
-        column.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-        column.RowStyles.AddRange([
-            new RowStyle(SizeType.Absolute, 150), new RowStyle(SizeType.Percent, 100F)
-        ]);
-
-        var statusGroup = NewGroup(L.T("Trạng thái máy này"));
-        var statusGrid = new TableLayoutPanel
-        {
-            Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            ColumnCount = 2, RowCount = 4
-        };
-        statusGrid.ColumnStyles.AddRange([
-            new ColumnStyle(SizeType.AutoSize), new ColumnStyle(SizeType.Percent, 100F)
-        ]);
-        statusGrid.RowStyles.AddRange([
-            new RowStyle(SizeType.AutoSize), new RowStyle(SizeType.AutoSize),
-            new RowStyle(SizeType.AutoSize), new RowStyle(SizeType.AutoSize)
-        ]);
-        AddRow(statusGrid, 0, "Windows Service:", ServiceStatusText);
-        AddRow(statusGrid, 1, L.T("Kết nối server:"), StatusText);
-        AddRow(statusGrid, 2, "Room:", RoomText);
-        AddRow(statusGrid, 3, "Tunnel:", TunnelText);
-        statusGroup.Controls.Add(statusGrid);
-        column.Controls.Add(statusGroup, 0, 0);
-
-        var sharedGroup = NewGroup(L.T("Máy in chia sẻ"));
-        var sharedGrid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3 };
-        sharedGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-        sharedGrid.RowStyles.AddRange([
-            new RowStyle(SizeType.AutoSize), new RowStyle(SizeType.Percent, 100F),
-            new RowStyle(SizeType.Absolute, ButtonRow)
-        ]);
-        sharedGrid.Controls.Add(NewHint(L.T("Chọn máy in để máy cùng Room sử dụng."), 18), 0, 0);
-        PrintersList.Dock = DockStyle.Fill;
-        sharedGrid.Controls.Add(PrintersList, 0, 1);
-        var sharedBottom = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2 };
-        sharedBottom.ColumnStyles.AddRange([
-            new ColumnStyle(SizeType.Percent, 100F), new ColumnStyle(SizeType.AutoSize)
-        ]);
-        sharedBottom.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-        sharedBottom.Controls.Add(PrintersHintText, 0, 0);
-        ScanPrintersButton.Click += ScanPrintersButton_Click;
-        sharedBottom.Controls.Add(ScanPrintersButton, 1, 0);
-        sharedGrid.Controls.Add(sharedBottom, 0, 2);
-        sharedGroup.Controls.Add(sharedGrid);
-        column.Controls.Add(sharedGroup, 0, 1);
-        return column;
-    }
-
-    private Control BuildRightColumn()
-    {
-        var split = new SplitContainer
-        {
-            Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterWidth = 6,
-            SplitterDistance = 250, Panel1MinSize = 130, Panel2MinSize = 100, IsSplitterFixed = false
-        };
-        var peersGroup = NewGroup(L.T("Máy cùng Room"));
-        peersGroup.Dock = DockStyle.Fill;
-        var peersGrid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3 };
-        peersGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-        peersGrid.RowStyles.AddRange([
-            new RowStyle(SizeType.AutoSize), new RowStyle(SizeType.Percent, 100F), new RowStyle(SizeType.Absolute, ButtonRow)
-        ]);
-        peersGrid.Controls.Add(PeersSummaryText, 0, 0);
-        var peersHost = new Panel { Dock = DockStyle.Fill, BorderStyle = BorderStyle.FixedSingle };
-        PeersGrid.Dock = DockStyle.Fill;
-        PeersGrid.BorderStyle = BorderStyle.None;
-        peersHost.Controls.Add(PeersGrid);
-        // The placeholder and the list both fill the host, so only one of them can be
-        // visible at a time; a docked overlay would be left with no room.
-        EmptyPeersPanel.Dock = DockStyle.Fill;
-        peersHost.Controls.Add(EmptyPeersPanel);
-        peersGrid.Controls.Add(peersHost, 0, 1);
-        var connectRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3 };
-        connectRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-        connectRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        connectRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        connectRow.Controls.Add(RemotePrinters, 0, 0);
-        connectRow.Controls.Add(ConnectPrinterButton, 1, 0);
-        connectRow.Controls.Add(PrintTestButton, 2, 0);
-        ConnectPrinterButton.Anchor = AnchorStyles.Left;
-        PrintTestButton.Anchor = AnchorStyles.Left;
-        ConnectPrinterButton.Enabled = false;
-        PeersGrid.SelectedIndexChanged += (_, _) => UpdateRemotePrinters();
-        RemotePrinters.SelectedIndexChanged += (_, _) => UpdateConnectButton();
-        ConnectPrinterButton.Click += async (_, _) => await ConnectRemotePrinterAsync();
-        PrintTestButton.Click += async (_, _) => await PrintRemoteTestAsync();
-        peersGrid.Controls.Add(connectRow, 0, 2);
-        peersGroup.Controls.Add(peersGrid);
-        split.Panel1.Controls.Add(peersGroup);
-
-        var activityGroup = NewGroup(L.T("Hoạt động gần đây"));
-        activityGroup.Dock = DockStyle.Fill;
-        ActivityList.Dock = DockStyle.Fill;
-        ActivityList.BorderStyle = BorderStyle.FixedSingle;
-        var activityLayout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2 };
-        activityLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        activityLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        activityLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, ButtonRow));
-        activityLayout.Controls.Add(ActivityList, 0, 0);
-        OpenTestFilesButton.Width = 150;
-        OpenTestFilesButton.Anchor = AnchorStyles.Right;
-        OpenTestFilesButton.Enabled = false;
-        OpenTestFilesButton.Visible = false;
-        OpenTestFilesButton.Click += (_, _) =>
-        {
-            using var dialog = new TestPrintFilesForm(_service);
-            dialog.ShowDialog(this);
-        };
-        activityLayout.Controls.Add(OpenTestFilesButton, 0, 1);
-        activityGroup.Controls.Add(activityLayout);
-        split.Panel2.Controls.Add(activityGroup);
-        return split;
-    }
-
-    private static void AddRow(TableLayoutPanel grid, int row, string caption, Label value)
-    {
-        grid.Controls.Add(NewCaption(caption), 0, row);
-        grid.Controls.Add(value, 1, row);
-    }
-
-    private static GroupBox NewGroup(string header) => new()
-    {
-        Text = header, Dock = DockStyle.Fill, Margin = new Padding(0, 0, 0, ColumnGap),
-        Padding = new Padding(6, 4, 6, 6)
-    };
-
-    private static Label NewCaption(string text) => new()
-    {
-        Text = text, AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 6, 8, 2)
-    };
-
-    private static Label NewValue(string text) => new()
-    {
-        Text = text, AutoSize = false, Height = 20, Dock = DockStyle.Fill,
-        Font = new Font("Segoe UI", 9F, FontStyle.Bold), TextAlign = ContentAlignment.MiddleLeft,
-        Margin = new Padding(0, 4, 0, 2)
-    };
-
-    private static Label NewHint(string text, int height) => new()
-    {
-        Text = text, AutoSize = false, Height = height, Dock = DockStyle.Fill,
-        ForeColor = SystemColors.GrayText, Margin = new Padding(0, 0, 0, 6)
-    };
-
-    internal static Button NewButton(string text) => new()
-    {
-        Text = text, AutoSize = false, Width = 128, Height = ButtonHeight, Margin = new Padding(0, 0, 6, 0)
-    };
 
     private async Task RefreshAsync()
     {

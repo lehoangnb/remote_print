@@ -27,6 +27,7 @@ internal static partial class Program
         var root = args.Length > 1 ? args[1] : Directory.GetCurrentDirectory();
         switch (args.FirstOrDefault())
         {
+            case "--designer-check": CheckDesignerForms(root); return;
             case "--update-check": CheckClientUpdatesAsync(root).GetAwaiter().GetResult(); return;
             case "--mesh-check": RunMeshChecksAsync(root).GetAwaiter().GetResult(); return;
             case "--native-relay-check": CheckNativeRelayAsync(root).GetAwaiter().GetResult(); return;
@@ -325,6 +326,11 @@ internal static partial class Program
             WaitFor(() => saved.Count >= 2 && saved.Last().Length == 0);
             Require(true, "Deselecting a printer automatically saves the removal");
             manager.StopAgent();
+            using var background = new MainForm(name, headless: true);
+            background.StartAgent();
+            WaitFor(() => background.PrintersList.Items.Count == 1);
+            Require(!background.Visible, "Background startup polls the service without showing a form");
+            background.StopAgent();
         }
         finally { stop.Cancel(); server.GetAwaiter().GetResult(); }
     }

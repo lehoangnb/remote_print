@@ -2,50 +2,18 @@ using System.Diagnostics;
 
 namespace RemotePrint.Client;
 
-public sealed class TestPrintFilesForm : Form
+public sealed partial class TestPrintFilesForm : Form
 {
-    private readonly ServiceClient _service;
+    private readonly ServiceClient _service = new();
     private readonly CancellationTokenSource _closing = new();
-    private readonly ListView _files = new()
-    {
-        Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, MultiSelect = false, HideSelection = false
-    };
-    private readonly Button _open = MainForm.NewButton(L.T("Mở file"));
-    private readonly Button _refresh = MainForm.NewButton(L.T("Làm mới"));
-    private readonly Button _clear = MainForm.NewButton(L.T("Dọn tất cả"));
-    private readonly Label _status = new() { Dock = DockStyle.Fill, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft };
     private bool _busy;
 
-    public TestPrintFilesForm(ServiceClient service)
+    public TestPrintFilesForm()
     {
-        _service = service;
-        Text = L.T("File in thử đã nhận");
+        InitializeComponent();
+        if (UiHelpers.IsDesignMode(this)) return;
         Icon = Program.AppIcon;
-        Font = new Font("Segoe UI", 9F);
-        ClientSize = new Size(660, 340);
-        MinimumSize = new Size(600, 280);
-        StartPosition = FormStartPosition.CenterParent;
-        ShowInTaskbar = false;
-        _files.Columns.Add(L.T("Thời gian nhận"), 160);
-        _files.Columns.Add(L.T("Kích thước (byte)"), 115, HorizontalAlignment.Right);
-        _files.Columns.Add(L.T("Định dạng"), 85);
-        _files.Columns.Add(L.T("Tên file"), 250);
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(12), ColumnCount = 1, RowCount = 3 };
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
-        layout.Controls.Add(_files, 0, 0);
-        layout.Controls.Add(_status, 0, 1);
-        var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft };
-        var close = MainForm.NewButton(L.T("Đóng"));
-        close.DialogResult = DialogResult.Cancel;
-        buttons.Controls.AddRange([close, _open, _refresh, _clear]);
-        layout.Controls.Add(buttons, 0, 2);
-        Controls.Add(layout);
-        CancelButton = close;
-        AcceptButton = _open;
-        _open.Enabled = false;
+        L.Apply(this);
         _files.SelectedIndexChanged += (_, _) => UpdateButtons();
         _files.DoubleClick += async (_, _) => await OpenAsync();
         _open.Click += async (_, _) => await OpenAsync();
@@ -60,8 +28,13 @@ public sealed class TestPrintFilesForm : Form
             if (IsDisposed) return;
             _busy = false; await RefreshFilesAsync();
         };
-        Shown += async (_, _) => await RefreshFilesAsync();
+        Shown += async (_, _) => { if (!UiHelpers.IsDesignMode(this)) await RefreshFilesAsync(); };
         FormClosed += (_, _) => _closing.Cancel();
+    }
+
+    public TestPrintFilesForm(ServiceClient service) : this()
+    {
+        _service = service;
     }
 
     private void UpdateButtons()

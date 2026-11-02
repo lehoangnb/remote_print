@@ -247,6 +247,32 @@ docker compose up -d
 docker compose logs -f remote-print-server
 ```
 
+## Sửa giao diện C# bằng Visual Studio
+
+Mở `RemotePrint.sln` tại thư mục gốc bằng Visual Studio có workload **.NET desktop
+development** và bộ công cụ .NET 8. Solution chứa toàn bộ sáu project C#:
+Client, Service, Core, Transport, Checks và Transport.Checks. Chọn
+`RemotePrint.Client` làm **Startup Project** nếu muốn chạy giao diện.
+
+Trong `RemotePrint.Client`, nhấp phải `MainForm.cs` → **View Designer** (Shift+F7)
+để kéo thả control và sửa thuộc tính trong **Properties**. Các cửa sổ
+`DeviceConfigForm`, `SetupNoticeForm`, `InstalledPrintersForm`, `TestPrintFilesForm`
+và `UpdateProgressForm` cũng mở Designer tương tự. Bố cục dùng `TableLayoutPanel`
+và `SplitContainer`: chọn panel trong **Document Outline** để chỉnh hàng/cột,
+Dock, Anchor, Margin hoặc Padding.
+
+Mỗi form có `.Designer.cs` chứa `InitializeComponent()` và `.resx` đi kèm;
+logic sự kiện/service nằm trong `.cs`. Designer hiển thị caption tiếng Việt.
+Nếu thay đổi/thêm caption cần dịch, cập nhật `server/public/translations.json`
+(được copy khi build). Giữ **Localizable = False** để tiếp tục dùng cơ chế VI/EN
+hiện có. Form chỉ kết nối service khi chạy; mở Designer không khởi động polling.
+
+```powershell
+dotnet build RemotePrint.sln -c Release
+dotnet run --project client/RemotePrint.Checks -c Release -- --designer-check "$PWD"
+dotnet run --project client/RemotePrint.Checks -c Release -- --ui-fit-check "$PWD"
+```
+
 ## Build và kiểm thử
 
 ```powershell

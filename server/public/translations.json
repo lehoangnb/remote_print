@@ -333,6 +333,7 @@
     "Queue belongs to another configuration": "Queue belongs to another configuration",
     "Kiểm tra cập nhật…": "Kiểm tra cập nhật…",
     "Cập nhật ứng dụng": "Cập nhật ứng dụng",
+    "Hủy": "Hủy",
     "Cập nhật client": "Cập nhật client",
     "Kiến trúc": "Kiến trúc",
     "Phiên bản": "Phiên bản",
@@ -367,6 +368,7 @@
   "en": {
     "Kiểm tra cập nhật…": "Check for updates…",
     "Cập nhật ứng dụng": "Application update",
+    "Hủy": "Cancel",
     "Cập nhật client": "Client updates",
     "Kiến trúc": "Architecture",
     "Phiên bản": "Version",
