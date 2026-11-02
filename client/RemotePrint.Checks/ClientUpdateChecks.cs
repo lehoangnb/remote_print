@@ -8,6 +8,8 @@ using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Configuration;
+using RemotePrint.Service;
 using RemotePrint.Client;
 
 internal static partial class Program
@@ -36,33 +38,95 @@ internal static partial class Program
         var mode = "new";
         var current = typeof(ClientUpdater).Assembly.GetName().Version!;
         var newer = new Version(current.Major, current.Minor + 1, 0).ToString(3);
-        app.MapGet("/api/client/updates/{runtime}", () => mode switch
+        var receivedPaths = new List<string>();
+        var badIdentity = false;
+        app.Use(async (context, next) =>
         {
-            "none" => Results.NoContent(), "old-server" => Results.NotFound(),
-            "same" => Results.Json(release with { Version = current.ToString(3) }),
-            "downgrade" => Results.Json(release with { Version = "1.0.0" }),
-            "wrong-runtime" => Results.Json(release with { Version = newer, Runtime = "win-x86" }),
-            "bad-path" => Results.Json(release with { Version = newer, DownloadPath = "https://other.example/package.zip" }),
-            "failed" => Results.StatusCode(503),
-            _ => Results.Json(release with { Version = newer })
+            receivedPaths.Add(context.Request.Path);
+            if (context.Request.Headers[ClientUpdateProtocol.VersionHeader] != ClientUpdater.CurrentVersion ||
+                context.Request.Headers[ClientUpdateProtocol.RuntimeHeader] != ClientUpdater.Runtime) badIdentity = true;
+            var command = release with { Version = newer };
+            command = mode switch
+            {
+                "same" => command with { Version = current.ToString(3) },
+                "same-four" => command with { Version = current.ToString(4) },
+                "downgrade" => command with { Version = "1.0.0" },
+                "wrong-runtime" => command with { Runtime = "win-x86" },
+                "bad-path" => command with { DownloadPath = "https://other.example/package.zip" },
+                "bad-hash" => command with { Sha256 = "invalid" },
+                "bad-size" => command with { Size = ClientUpdater.MaxPackageSize + 1 },
+                "bad-version" => command with { Version = "01.2.3" },
+                "bad-number" => command with { Version = "1.2.65535" },
+                _ => command
+            };
+            if (mode is not ("none" or "old-server"))
+                context.Response.Headers[ClientUpdateProtocol.UpdateHeader] = mode == "malformed" ? "!not-base64!" :
+                    mode == "oversized" ? new string('x', 2049) :
+                    Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(command, ServiceProtocol.Json));
+            if (mode == "failed") { context.Response.StatusCode = 503; return; }
+            await next();
         });
+        app.MapGet("/api/client/status", () => Results.Json(new ClientState { Status = "approved" }));
+        app.MapPost("/api/client/register", () => Results.Json(new ClientState { Status = "pending" }));
+        app.MapGet("/api/client/peers", () => Results.Json(Array.Empty<PeerClient>()));
+        app.MapGet("/api/client/tunnel", () => Results.Json(new TunnelInfo()));
+        app.MapPut("/api/client/tunnel", () => Results.Json(new TunnelInfo()));
         app.MapGet(release.DownloadPath, () => Results.Bytes(bytes, "application/zip"));
         await app.StartAsync();
         var address = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single();
+        var config = new ClientConfig { ServerUrl = address };
+        ClientRelease? offered = null;
+        var commands = 0;
+        using var api = new RemotePrintApi(config, command => { offered = command; commands++; });
+        await api.RegisterAsync();
+        Require(offered?.Version == newer, "Registration receives the server update command without a manifest check");
+        await api.GetStatusAsync(); await api.GetPeersAsync(); await api.GetTunnelAsync(default);
+        await api.EnrollTunnelAsync("checks", default); await api.HeartbeatAsync(default);
+        Require(commands == 6 && !badIdentity, "Registration, status, peers, tunnel and heartbeat send version/runtime and receive commands");
+        foreach (var value in new[] { "none", "old-server", "same", "same-four", "downgrade", "wrong-runtime", "bad-path", "bad-hash", "bad-size", "bad-version", "bad-number", "malformed", "oversized" })
+        {
+            mode = value; offered = null;
+            await api.HeartbeatAsync(default);
+            Require(offered is null, "No automatic upgrade for " + value);
+        }
+        mode = "failed"; offered = null;
+        try { await api.HeartbeatAsync(default); throw new Exception("API failure ignored"); }
+        catch (System.Net.Http.HttpRequestException) { Require(offered is null, "Failed API responses never trigger installation"); }
+        mode = "new";
+        // Verify that the real API command is carried through the engine snapshot and IPC serialization.
+        var engineDirectory = Path.Combine(directory, "engine");
+        var store = new MachineStore(engineDirectory);
+        var saved = store.Load(); saved.ServerUrl = address; store.Save(saved);
+        using (var engine = new ClientEngine(new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            { ["DataDirectory"] = engineDirectory, ["SkipTestPrinterUpgrade"] = "true" }).Build()))
+        using (var heartbeat = new RemotePrintApi(config, command => engine.ReceiveUpdate(address, command)))
+        {
+            await heartbeat.HeartbeatAsync(default);
+            var snapshot = await engine.ExecuteAsync(new("refresh"), default);
+            using var stream = new MemoryStream();
+            await ServiceProtocol.WriteAsync(stream, new ServiceReply(true, snapshot), default); stream.Position = 0;
+            var reply = await ServiceProtocol.ReadAsync<ServiceReply>(stream, default);
+            Require(reply.Snapshot?.Update is { } update && update.ServerUrl == address && update.Release.Version == newer,
+                "Server-issued command reaches the UI via the engine snapshot and framed IPC");
+            engine.ReceiveUpdate("https://old-server.example", release with { Version = "99.0.0" });
+            Require((await engine.ExecuteAsync(new("refresh"), default)).Update?.Release.Version == newer,
+                "A delayed command from another server cannot replace the current command");
+            mode = "none"; await heartbeat.HeartbeatAsync(default);
+            Require((await engine.ExecuteAsync(new("refresh"), default)).Update is null, "A server without a command clears the pending update");
+        }
+        mode = "new";
+        var attempts = new AutomaticUpdateAttempts();
+        var request = new ClientUpdateRequest(address, release with { Version = newer });
+        var now = DateTime.UtcNow;
+        Require(attempts.TryBegin(request, now) && !attempts.TryBegin(request, now.AddSeconds(2)), "Repeated server replies do not loop on the same installation");
+        Require(attempts.TryBegin(request, now.AddMinutes(15)), "Failed/canceled installation can retry after 15 minutes");
+        Require(attempts.TryBegin(request with { Release = request.Release with { Sha256 = new string('1', 64) } }, now.AddMinutes(15).AddSeconds(1)),
+            "A newly published package does not wait for the previous retry delay");
+        Require(attempts.TryBegin(request with { ServerUrl = "https://another.example" }, now.AddMinutes(15).AddSeconds(2)),
+            "A different server does not inherit the previous retry delay");
+        Require(!attempts.TryBegin(request, now.AddMinutes(15).AddSeconds(3)),
+            "An older in-flight command remains throttled after another package or server was attempted");
         using var updater = new ClientUpdater();
-        Require((await updater.CheckAsync(address, default))?.Version == newer, "Client discovers a newer version over real HTTP");
-        foreach (var value in new[] { "none", "old-server", "same", "downgrade" })
-        {
-            mode = value;
-            Require(await updater.CheckAsync(address, default) is null, "No upgrade for " + value);
-        }
-        foreach (var value in new[] { "wrong-runtime", "bad-path", "failed" })
-        {
-            mode = value;
-            try { await updater.CheckAsync(address, default); throw new Exception("Invalid release accepted"); }
-            catch (Exception ex) when (ex is InvalidDataException or System.Net.Http.HttpRequestException)
-            { Require(true, "Reject update metadata: " + value); }
-        }
         foreach (var url in new[] { "http://print.example.com", "https://user:pass@print.example.com", "RPPAIR1.bad", "https://print.example.com/?secret=x" })
         {
             try { ClientUpdater.ServerUri(url); throw new Exception("Unsafe server accepted"); }
@@ -100,13 +164,17 @@ internal static partial class Program
         var previousContext = SynchronizationContext.Current;
         using (var form = new MainForm("RemotePrint.Update.Checks." + Guid.NewGuid().ToString("N"), headless: true))
         {
-            Require(form.MainMenuStrip!.Items.OfType<System.Windows.Forms.ToolStripMenuItem>().First().DropDownItems.Contains(form._checkUpdateItem),
-                "Check for updates is available in Settings MenuStrip");
+            var settings = form.MainMenuStrip!.Items.OfType<System.Windows.Forms.ToolStripMenuItem>().First();
+            Require(!settings.DropDownItems.Cast<System.Windows.Forms.ToolStripItem>().Any(item => item.Name == "_checkUpdateItem" || (item.Text ?? "").Contains("Kiểm tra cập nhật")),
+                "Settings no longer offers a manual update check");
             form.ApplyLanguage("en");
-            Require(form._checkUpdateItem.Text == "Check for updates…", "Update menu switches to English immediately");
+            Require(!settings.DropDownItems.Cast<System.Windows.Forms.ToolStripItem>().Any(item => (item.Text ?? "").Contains("Check for updates")),
+                "English settings no longer offers a manual update check");
             form.ApplyLanguage("vi"); form.StopAgent();
         }
         SynchronizationContext.SetSynchronizationContext(previousContext);
+        Require(!badIdentity && receivedPaths.All(path => !path.StartsWith("/api/client/updates/win-")),
+            "Client traffic carries build identity without a separate manifest polling request");
         await app.StopAsync();
     }
 }

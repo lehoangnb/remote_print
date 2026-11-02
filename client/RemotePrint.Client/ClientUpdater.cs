@@ -1,55 +1,31 @@
 using System.IO.Compression;
-using System.Net;
 using System.Net.Http;
-using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
 
 namespace RemotePrint.Client;
 
-internal sealed record ClientRelease(string Version, string Runtime, string Notes, long Size, string Sha256, string DownloadPath);
-
 internal sealed class ClientUpdater : IDisposable
 {
-    internal const long MaxPackageSize = 256L * 1024 * 1024;
-    private static readonly JsonSerializerOptions Json = new() { PropertyNameCaseInsensitive = true };
+    internal const long MaxPackageSize = ClientUpdateProtocol.MaxPackageSize;
     private readonly HttpClient _http;
-    internal static string CurrentVersion => typeof(ClientUpdater).Assembly.GetName().Version is { } version ? version.ToString(version.Revision == 0 ? 3 : 4) : "";
-    internal static string Runtime => RuntimeInformation.ProcessArchitecture switch
-    {
-        Architecture.X64 => "win-x64", Architecture.Arm64 => "win-arm64",
-        _ => throw new InvalidOperationException(L.T("Kiến trúc client không hỗ trợ cập nhật."))
-    };
+    internal static string CurrentVersion => ClientUpdateProtocol.CurrentVersion;
+    internal static string Runtime => ClientUpdateProtocol.Runtime;
 
-    internal ClientUpdater(HttpMessageHandler? handler = null) => _http = new HttpClient(handler ?? new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = Timeout.InfiniteTimeSpan };
+    internal ClientUpdater(HttpMessageHandler? handler = null)
+    {
+        _http = new HttpClient(handler ?? new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = Timeout.InfiniteTimeSpan };
+        _http.DefaultRequestHeaders.Add(ClientUpdateProtocol.VersionHeader, CurrentVersion);
+        _http.DefaultRequestHeaders.Add(ClientUpdateProtocol.RuntimeHeader, Runtime);
+    }
 
     internal static Uri ServerUri(string server)
     {
         if (!Uri.TryCreate(server.TrimEnd('/') + "/", UriKind.Absolute, out var uri) ||
             (uri.Scheme != "https" && !(uri.Scheme == "http" && uri.IsLoopback)) ||
             uri.UserInfo.Length != 0 || uri.Query.Length != 0 || uri.Fragment.Length != 0)
-            throw new InvalidOperationException(L.T("Hãy cấu hình địa chỉ server HTTPS trước khi kiểm tra cập nhật."));
+            throw new InvalidOperationException(L.T("Hãy cấu hình địa chỉ server HTTPS để tự động cập nhật."));
         return uri;
-    }
-
-    internal async Task<ClientRelease?> CheckAsync(string server, CancellationToken ct)
-    {
-        using var response = await _http.GetAsync(new Uri(ServerUri(server), "api/client/updates/" + Runtime), ct);
-        // Servers predating this feature and servers without a published release are supported.
-        if (response.StatusCode is HttpStatusCode.NoContent or HttpStatusCode.NotFound) return null;
-        response.EnsureSuccessStatusCode();
-        var body = await response.Content.ReadAsStringAsync(ct);
-        if (body.Length > 16384) throw new InvalidDataException(L.T("Thông tin cập nhật không hợp lệ."));
-        var release = JsonSerializer.Deserialize<ClientRelease>(body, Json);
-        if (release is null || !System.Version.TryParse(release.Version, out var version) || release.Runtime != Runtime ||
-            release.Size <= 0 || release.Size > MaxPackageSize || release.Sha256 is null ||
-            release.Sha256.Length != 64 || !release.Sha256.All(Uri.IsHexDigit) ||
-            release.DownloadPath != $"/api/client/updates/packages/{release.Sha256.ToLowerInvariant()}.zip" ||
-            release.Notes is null || release.Notes.Length > 4000)
-            throw new InvalidDataException(L.T("Thông tin cập nhật không hợp lệ."));
-        var current = typeof(ClientUpdater).Assembly.GetName().Version!;
-        var normalized = new System.Version(version.Major, version.Minor, Math.Max(0, version.Build), Math.Max(0, version.Revision));
-        return normalized > current ? release : null;
     }
 
     internal async Task DownloadAsync(string server, ClientRelease release, string archive, IProgress<int>? progress, CancellationToken ct)

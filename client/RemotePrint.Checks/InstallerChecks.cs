@@ -19,7 +19,7 @@ internal static partial class Program
         var registrar = new FakeRegistrar();
         var service = new WindowsServiceInstaller(registrar, new SetupRoots(Path.Combine(root,"denied-install"),Path.Combine(root,"denied-data")), new FakeAgent(), package, denied);
         Require(Throws(() => service.Install(TestSid, null), "Cần quyền quản trị"), "Installation requires administrator rights");
-        Require(Throws(service.Uninstall, "Cần quyền quản trị"), "Removal requires administrator rights");
+        Require(Throws(() => service.Uninstall(), "Cần quyền quản trị"), "Removal requires administrator rights");
         Require(registrar.Calls.Count == 0, "Rejected setup makes no service changes");
     }
     private static void CheckServiceInterop()

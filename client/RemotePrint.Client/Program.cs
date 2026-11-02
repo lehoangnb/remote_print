@@ -40,15 +40,43 @@ internal static class Program
         Application.SetDefaultFont(new Font("Segoe UI", 9F));
 
         var sid = WindowsIdentity.GetCurrent().User!.Value;
-        using var instance = new Mutex(true, $"Local\\RemotePrint.UI.{sid}", out var isFirst);
-        using var showEvent = new EventWaitHandle(false, EventResetMode.AutoReset, $"Local\\RemotePrint.Show.{sid}");
+        var showManager = !args.Contains("--background") || args.Contains("--show-manager");
+        if (!SetupPaths.IsAdministrator && !args.Contains("--admin-startup") && AdminAgentStartup.IsEnabled(sid))
+        {
+            try { AdminAgentStartup.Run(showManager); return 0; }
+            catch (Exception ex)
+            {
+                // A missing/disabled task must still let the user open Settings and repair the choice.
+                if (showManager) MessageBox.Show(L.T("Không khởi động được client với quyền quản trị.") + "\n" + L.Message(ex.Message),
+                    "Remote Print", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+        Mutex? instance = null;
+        EventWaitHandle showEvent;
+        bool isFirst;
+        try
+        {
+            instance = new Mutex(true, $"Local\\RemotePrint.UI.{sid}", out isFirst);
+            showEvent = new EventWaitHandle(false, EventResetMode.AutoReset, $"Local\\RemotePrint.Show.{sid}");
+        }
+        catch (UnauthorizedAccessException)
+        {
+            instance?.Dispose();
+            if (showManager) MessageBox.Show(L.T("Client đang chạy với quyền khác. Hãy mở từ khay hệ thống hoặc thoát client rồi mở lại."),
+                "Remote Print", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return 6;
+        }
+        using var instanceLifetime = instance;
+        using var showEventLifetime = showEvent;
         if (!isFirst)
         {
-            showEvent.Set();
+            if (showManager) showEvent.Set();
             return 0;
         }
 
         var form = new MainForm();
+        // A tray-only instance also needs a handle so later launches can post ShowManager.
+        _ = form.Handle;
         // The window only collects to the tray, so the process must outlive the form.
         using var context = new ApplicationContext();
         using var tray = new NotifyIcon
@@ -94,7 +122,7 @@ internal static class Program
             catch (ObjectDisposedException) { }
         });
 
-        if (!args.Contains("--background")) ShowManager();
+        if (showManager) ShowManager();
         // Background mode never raises Load, but must still poll the service.
         form.StartAgent();
         Application.Run(context);

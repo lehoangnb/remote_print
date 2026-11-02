@@ -71,7 +71,7 @@ document.getElementById('updates-form').addEventListener('submit', async event =
     if (response.status === 401) { logout(t('Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại.')); return; }
     if (!response.ok) throw new Error(errorMessages()[body.error] || t('Không tải được gói cập nhật. Hãy kiểm tra kết nối và giới hạn tải lên của proxy.'));
     releases = releases.filter(r => r.runtime !== runtime).concat(body); renderReleases();
-    updateStatus.textContent = t('Đã phát hành. Client sẽ đề nghị cập nhật trong lần kiểm tra tiếp theo.');
+    updateStatus.textContent = t('Đã phát hành. Client cũ sẽ nhận lệnh cập nhật trong lần giao tiếp tiếp theo với server.');
     document.getElementById('updates-file').value = '';
   } catch (e) {
     if (token === state.token && updatesDialog.open) updateStatus.textContent = e.name === 'AbortError' ? t('Đã hủy hoặc hết thời gian cập nhật.') : e.message;

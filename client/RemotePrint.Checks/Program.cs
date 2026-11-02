@@ -29,6 +29,7 @@ internal static partial class Program
         {
             case "--designer-check": CheckDesignerForms(root); return;
             case "--update-check": CheckClientUpdatesAsync(root).GetAwaiter().GetResult(); return;
+            case "--admin-startup-check": CheckAdminStartup(root); return;
             case "--mesh-check": RunMeshChecksAsync(root).GetAwaiter().GetResult(); return;
             case "--native-relay-check": CheckNativeRelayAsync(root).GetAwaiter().GetResult(); return;
             case "--installed-printer-check": CheckInstalledPrintersAsync(root).GetAwaiter().GetResult(); return;

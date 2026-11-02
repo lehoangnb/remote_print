@@ -32,6 +32,13 @@ public sealed partial class MainForm : Form
         Text = $"{Text} {ClientUpdater.CurrentVersion}";
         L.Apply(this);
         WireMenuEvents();
+        VisibleChanged += async (_, _) =>
+        {
+            if (!Visible || _headless) return;
+            _updatePolicy.GuiOpened();
+            await RefreshAsync();
+            await ApplyServerUpdateAsync();
+        };
         ScanPrintersButton.Click += ScanPrintersButton_Click;
         PeersGrid.SelectedIndexChanged += (_, _) => UpdateRemotePrinters();
         RemotePrinters.SelectedIndexChanged += (_, _) => UpdateConnectButton();
@@ -54,7 +61,7 @@ public sealed partial class MainForm : Form
         {
             if (e.ListItem is string name && !_availablePrinterNames.Contains(name)) e.Value = name + L.T(" (không khả dụng)");
         };
-        _timer.Tick += async (_, _) => { if (_updateBusy) return; await RefreshAsync(); await SavePrinterSelectionAsync(); await CheckScheduledUpdateAsync(); };
+        _timer.Tick += async (_, _) => { if (_updateBusy) return; await RefreshAsync(); await SavePrinterSelectionAsync(); await ApplyServerUpdateAsync(); };
         FormClosing += (_, e) =>
         {
             if (e.CloseReason != CloseReason.UserClosing) return;
@@ -101,6 +108,7 @@ public sealed partial class MainForm : Form
             foreach (ToolStripItem item in items)
             {
                 item.Text = L.Retranslate(item.Text ?? "", previous, language);
+                item.ToolTipText = L.Retranslate(item.ToolTipText ?? "", previous, language);
                 if (item is ToolStripMenuItem menuItem) TranslateMenu(menuItem.DropDownItems);
             }
         }
@@ -139,6 +147,8 @@ public sealed partial class MainForm : Form
     private void WireMenuEvents()
     {
         _configureItem.Click += (_, _) => OpenConfiguration();
+        _adminStartupItem.Checked = AdminAgentStartup.IsEnabled(AdminAgentStartup.CurrentSid);
+        _adminStartupItem.Click += async (_, _) => await ChangeAdminStartupAsync();
         _serviceInstallItem.Click += InstallService_Click;
         _serviceUninstallItem.Click += UninstallService_Click;
         _testPrinterInstallItem.Click += async (_, _) => await InstallTestPrinterAsync();
@@ -164,7 +174,6 @@ public sealed partial class MainForm : Form
         _englishItem.Checked = L.Language == "en";
         _vietnameseItem.Click += (_, _) => SelectLanguage("vi");
         _englishItem.Click += (_, _) => SelectLanguage("en");
-        _checkUpdateItem.Click += async (_, _) => await CheckForUpdateAsync(manual: true);
     }
 
     private void SelectLanguage(string code)

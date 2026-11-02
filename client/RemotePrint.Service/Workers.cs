@@ -33,7 +33,8 @@ public sealed class HeartbeatWorker(ClientEngine engine, ILogger<HeartbeatWorker
                     if (config.ServerUrl != url)
                     {
                         api?.Dispose();
-                        api = string.IsNullOrWhiteSpace(config.ServerUrl) ? null : new RemotePrintApi(config);
+                        var server = config.ServerUrl;
+                        api = string.IsNullOrWhiteSpace(server) ? null : new RemotePrintApi(config, release => engine.ReceiveUpdate(server, release));
                         url = config.ServerUrl;
                     }
                     if (api is not null) await api.HeartbeatAsync(stoppingToken);

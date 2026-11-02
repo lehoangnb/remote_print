@@ -30,8 +30,14 @@ internal static class SetupPaths
     public static string ServiceExecutable(string versionDirectory) =>
         Path.Combine(versionDirectory, "Service", "RemotePrint.Service.exe");
 
-    public static bool IsAdministrator => new WindowsPrincipal(WindowsIdentity.GetCurrent())
-        .IsInRole(WindowsBuiltInRole.Administrator);
+    public static bool IsAdministrator
+    {
+        get
+        {
+            using var identity = WindowsIdentity.GetCurrent();
+            return new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator);
+        }
+    }
 
     public static void RequireAdministrator(string action)
     {

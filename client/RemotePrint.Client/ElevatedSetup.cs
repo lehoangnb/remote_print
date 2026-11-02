@@ -10,7 +10,9 @@ namespace RemotePrint.Client;
 public enum SetupOperation
 {
     InstallService,
-    UninstallService
+    UninstallService,
+    EnableAdminStartup,
+    DisableAdminStartup
 }
 
 /// <summary>
@@ -33,19 +35,27 @@ internal static class ElevatedSetup
 
     public static bool IsRequested(string[] args) => args.Contains(SetupSwitch);
 
-    public static async Task<string?> RunAsync(SetupOperation operation, string? migrationFile, string? packageExecutable = null)
+    internal static ProcessStartInfo StartInfo(string executable, bool administrator) => administrator
+        ? new ProcessStartInfo(executable) { UseShellExecute = false, CreateNoWindow = true }
+        : new ProcessStartInfo(executable) { UseShellExecute = true, Verb = "runas", WindowStyle = ProcessWindowStyle.Hidden };
+
+    public static async Task<string?> RunAsync(SetupOperation operation, string? migrationFile, string? packageExecutable = null, bool restartClient = false)
     {
         var executable = packageExecutable ?? Environment.ProcessPath
             ?? throw new InvalidOperationException("Không xác định được tệp thực thi để nâng quyền.");
         var result = Path.Combine(ResultDirectory, $"{ResultPrefix}{Guid.NewGuid():N}.json");
-        var start = new ProcessStartInfo(executable)
-        { UseShellExecute = true, Verb = "runas", WindowStyle = ProcessWindowStyle.Hidden };
+        var start = StartInfo(executable, SetupPaths.IsAdministrator);
         start.ArgumentList.Add(SetupSwitch);
         start.ArgumentList.Add(operation.ToString());
         start.ArgumentList.Add(ResultSwitch);
         start.ArgumentList.Add(result);
         start.ArgumentList.Add(UserSwitch);
         start.ArgumentList.Add(WindowsIdentity.GetCurrent().User!.Value);
+        if (restartClient)
+        {
+            start.ArgumentList.Add("--restart-after");
+            start.ArgumentList.Add(Environment.ProcessId.ToString());
+        }
         if (migrationFile is not null)
         {
             start.ArgumentList.Add(MigrateSwitch);
@@ -94,6 +104,13 @@ internal static class ElevatedSetup
         {
             PrepareResultDirectory();
             installedPath = Execute(operation, Value(args, UserSwitch), Value(args, MigrateSwitch));
+            if (operation == SetupOperation.EnableAdminStartup && installedPath is not null &&
+                int.TryParse(Value(args, "--restart-after"), out var previousId) && previousId > 0)
+            {
+                var restart = new ProcessStartInfo(installedPath) { UseShellExecute = false };
+                restart.ArgumentList.Add("--wait-for-exit"); restart.ArgumentList.Add(previousId.ToString());
+                using var child = Process.Start(restart) ?? throw new InvalidOperationException("Không khởi động được client với quyền quản trị.");
+            }
         }
         catch (Exception ex)
         {
@@ -123,8 +140,13 @@ internal static class ElevatedSetup
                 return new WindowsServiceInstaller(new ServiceRegistrar())
                     .Install(TrustedSid(userSid), TrustedMigration(migrationFile));
             case SetupOperation.UninstallService:
-                new WindowsServiceInstaller(new ServiceRegistrar()).Uninstall();
+                new WindowsServiceInstaller(new ServiceRegistrar()).Uninstall(TrustedSid(userSid));
                 break;
+            case SetupOperation.EnableAdminStartup:
+            case SetupOperation.DisableAdminStartup:
+                if (operation == SetupOperation.EnableAdminStartup && userSid != AdminAgentStartup.CurrentSid)
+                    throw new InvalidOperationException("Chạy admin khi đăng nhập cần tài khoản Windows hiện tại thuộc nhóm Administrators. Không thể dùng quyền của tài khoản khác cho tùy chọn này.");
+                return AdminAgentStartup.Configure(TrustedSid(userSid), operation == SetupOperation.EnableAdminStartup);
         }
         return null;
     }

@@ -10,10 +10,11 @@ public sealed class RemotePrintApi : IDisposable
     private readonly HttpClient _http;
     private readonly ClientConfig _config;
 
-    public RemotePrintApi(ClientConfig config)
+    public RemotePrintApi(ClientConfig config, Action<ClientRelease?>? updateReceived = null)
     {
         _config = config;
-        _http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { BaseAddress = new Uri(config.ServerUrl + "/"), Timeout = TimeSpan.FromSeconds(90) };
+        _http = new HttpClient(new ClientVersionHandler(new HttpClientHandler { AllowAutoRedirect = false }, updateReceived))
+        { BaseAddress = new Uri(config.ServerUrl + "/"), Timeout = TimeSpan.FromSeconds(90) };
         _http.DefaultRequestHeaders.Add("x-device-id", config.DeviceId);
         _http.DefaultRequestHeaders.Add("x-device-secret", config.DeviceSecret);
     }

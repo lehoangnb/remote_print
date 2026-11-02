@@ -14,6 +14,7 @@ public sealed record TestPrintChunk(long Offset, byte[] Data, bool End);
 public sealed record InstalledPrinter(string Id, string Name);
 public sealed class ServiceSnapshot
 {
+    public ClientUpdateRequest? Update { get; set; }
     public bool NativePrinting { get; set; }
     public bool PrinterRemoval { get; set; }
     public List<InstalledPrinter> InstalledPrinters { get; set; } = [];

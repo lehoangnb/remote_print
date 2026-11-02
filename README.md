@@ -183,14 +183,38 @@ ghi chú rồi bấm **Tải lên và phát hành**. Server tự đọc phiên b
 `build-info.json` trong ZIP, không cần nhập phiên bản. Chỉ quản trị viên đã đăng nhập được
 phát hành; bản mới phải có phiên bản lớn hơn bản hiện tại của cùng kiến trúc.
 
-Client kiểm tra khi mở ứng dụng (kể cả chạy trong khay hệ thống) và mỗi 6 giờ.
-Khi có phiên bản mới, ứng dụng hiện phiên bản/ghi chú và hỏi người dùng trước
-khi tải, cài đặt. Chọn **Không** để tiếp tục sử dụng; cùng bản đó không hỏi lại
-trong phiên chạy hiện tại. Có thể chủ động chọn **Cài đặt > Kiểm tra cập nhật…**.
-Kiểm tra nền thất bại không hiện hộp lỗi; kiểm tra thủ công sẽ báo kết quả.
+Mọi request API của client đều gửi `x-client-version` và `x-client-runtime`.
+Khi phiên bản đã phát hành cho đúng kiến trúc mới hơn client, server gửi lệnh
+`x-client-update` ngay trong phản hồi API thông thường (đăng ký, trạng thái,
+heartbeat, danh sách máy hoặc tunnel). Service chuyển lệnh cho ứng dụng qua
+IPC; client quyết định cập nhật theo quyền thực tế của tiến trình:
 
-Sau khi đồng ý, client kiểm tra kích thước, SHA-256, kiến trúc, phiên bản và
-manifest của toàn bộ file rồi yêu cầu UAC để cập nhật cả giao diện lẫn service.
+- **Có quyền admin:** tự tải, xác minh và cài đặt, kể cả đang chạy trong khay.
+  Bộ cài kế thừa quyền admin hiện có, không yêu cầu UAC lần nữa.
+- **User thường:** không tải hay hiện thông báo/UAC khi chạy trong khay.
+  Khi mở GUI, client báo bản mới và cho chọn cài ngay; chỉ lúc đồng ý mới tải
+  rồi yêu cầu UAC. Chọn không để tiếp tục dùng; lần mở GUI tiếp theo có thể báo lại.
+
+Không có nút kiểm tra thủ công hay lịch kiểm tra bản mới riêng. Không cập
+nhật khi client bằng hoặc mới hơn bản trên server. Client kiểm tra kích thước,
+SHA-256, kiến trúc, phiên bản và manifest của toàn bộ file trước khi cài.
+Lượt tự cập nhật admin thất bại/hết thời gian/bị hủy chờ ít nhất 15 phút để
+thử lại cùng gói từ cùng server. Lựa chọn cài ngay trong GUI cho phép thử lại
+sớm hơn. Cần giữ ứng dụng chạy trong khay để tự thực thi lệnh; nếu đã thoát
+client, lệnh được xử lý khi mở lại và kết nối service.
+
+Trong **Cài đặt > Luôn chạy với quyền quản trị**, bật tùy chọn để nâng quyền
+phiên hiện tại và dùng Task Scheduler cho startup khi đăng nhập Windows.
+Cần xác nhận UAC một lần khi bật từ phiên thường. Task dùng đúng tài khoản
+Windows hiện tại, `InteractiveToken` và `HighestAvailable`; không lưu mật khẩu.
+Tài khoản này phải thuộc nhóm Administrators; không dùng tài khoản admin khác
+để cấp quyền chạy admin tự động cho một tài khoản thường. Cần cài service trước.
+Khi tắt tùy chọn, startup trở về Run key thông thường; phiên đang chạy admin
+vẫn giữ quyền đến khi thoát client. Lựa chọn và đường dẫn task được giữ/cập
+nhật qua các lần nâng cấp, khôi phục về bản trước khi cài lỗi, và task được gỡ
+khi gỡ service. Giao diện chỉ khởi động sau khi đăng nhập, service vẫn tự chạy
+khi Windows boot dù chưa đăng nhập.
+
 Ứng dụng tự mở lại từ thư mục đã cài. Service khởi động lại nên kết nối in
 tạm ngắt; cấu hình, danh tính thiết bị và dữ liệu spool vẫn được giữ nguyên.
 Nếu không khởi động được service mới, bộ cài thử khôi phục service/bản cũ và
@@ -199,8 +223,8 @@ báo lỗi; lỗi khôi phục được ghi trong nhật ký cài đặt.
 Build gói phát hành với phiên bản tăng dần, ví dụ:
 
 ```powershell
-.\scripts\publish-client.ps1 -Runtime win-x64 -Version 1.1.1
-.\scripts\publish-client.ps1 -Runtime win-arm64 -Version 1.1.1
+.\scripts\publish-client.ps1 -Runtime win-x64 -Version 1.1.4
+.\scripts\publish-client.ps1 -Runtime win-arm64 -Version 1.1.4
 ```
 
 Tải file `dist/RemotePrint.Client-win-x64.zip` hoặc
@@ -217,9 +241,10 @@ Reverse proxy cần cho phép upload ZIP tới 256 MiB và thời gian tải ph�
 Client dùng HTTPS của server đã cấu hình (HTTP chỉ được phép với loopback để
 thử cục bộ), không chuyển hướng sang máy chủ tải khác.
 
-**Triển khai lần đầu:** cập nhật server và cài thủ công gói client 1.1.0 một
-lần trên các máy cũ. Từ phiên bản này, các bản tiếp theo được đề nghị cài qua
-ứng dụng; client cũ chưa có cơ chế tự cập nhật không tự nhận tính năng này.
+**Chuyển sang cơ chế mới:** cập nhật server và cài client/service **1.1.4**.
+Client 1.1.0–1.1.2 vẫn có thể nhận 1.1.4 bằng cơ chế cập nhật cũ; sau khi
+cài xong mới gửi phiên bản và tự thực thi lệnh từ server. Client trước 1.1.0
+cần cài thủ công một lần. Client 1.1.3 nhận 1.1.4 qua lệnh cập nhật từ server.
 
 ## Dữ liệu và trạng thái
 
@@ -269,7 +294,8 @@ volumes:
 ```
 
 Dùng reverse proxy HTTPS chuyển tới 7443 và hỗ trợ WebSocket, giữ header
-`x-device-id`, `x-device-secret`, `x-enrollment-key`; không ghi header bí mật vào access log.
+`x-device-id`, `x-device-secret`, `x-enrollment-key`, `x-client-version`,
+`x-client-runtime` và header phản hồi `x-client-update`; không ghi header bí mật vào access log.
 Nếu proxy ở máy khác thì điều chỉnh binding TCP 7443 cho mạng nội bộ phù hợp.
 Mở HTTPS và UDP 51821 tới server. Với Cloudflare proxy, UDP discovery phải dùng
 hostname DNS-only trỏ tới origin qua `MESH_PUBLIC_HOST`; WSS vẫn dùng domain API.
@@ -321,6 +347,7 @@ dotnet artifacts/checks/RemotePrint.Checks.dll --installed-printer-check "$PWD"
 dotnet artifacts/checks/RemotePrint.Checks.dll --test-printer-check "$PWD"
 dotnet artifacts/checks/RemotePrint.Checks.dll --autosave-check
 dotnet artifacts/checks/RemotePrint.Checks.dll --update-check "$PWD"
+dotnet artifacts/checks/RemotePrint.Checks.dll --admin-startup-check "$PWD"
 dotnet artifacts/checks/RemotePrint.Checks.dll --installer-check "$PWD"
 dotnet artifacts/checks/RemotePrint.Checks.dll --mesh-check "$PWD"
 ```

@@ -20,9 +20,9 @@ public sealed partial class UpdateProgressForm : Form
 
     internal void ShowVerification() => statusLabel.Text = L.T("Đang kiểm tra gói cập nhật…");
 
-    internal void ShowInstallation()
+    internal void ShowInstallation(bool requiresElevation = true)
     {
-        statusLabel.Text = L.T("Đang cài đặt; hãy xác nhận yêu cầu quyền quản trị…");
+        statusLabel.Text = L.T(requiresElevation ? "Đang cài đặt; hãy xác nhận yêu cầu quyền quản trị…" : "Đang cài đặt bản cập nhật…");
         cancelButton.Enabled = false;
     }
 }

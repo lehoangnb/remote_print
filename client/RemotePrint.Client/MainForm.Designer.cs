@@ -29,19 +29,18 @@ partial class MainForm
         _menu = new MenuStrip();
         _settingsItem = new ToolStripMenuItem();
         _configureItem = new ToolStripMenuItem();
+        _adminStartupItem = new ToolStripMenuItem();
         _serviceInstallItem = new ToolStripMenuItem();
         _serviceUninstallItem = new ToolStripMenuItem();
         _testPrinterInstallItem = new ToolStripMenuItem();
         _testPrinterUninstallItem = new ToolStripMenuItem();
         InstalledPrintersItem = new ToolStripMenuItem();
         _clearTestFilesItem = new ToolStripMenuItem();
-        _checkUpdateItem = new ToolStripMenuItem();
         _languageItem = new ToolStripMenuItem();
         _vietnameseItem = new ToolStripMenuItem();
         _englishItem = new ToolStripMenuItem();
         _setupSeparator = new ToolStripSeparator();
         _printerSeparator = new ToolStripSeparator();
-        _updateSeparator = new ToolStripSeparator();
         rootLayout = new TableLayoutPanel();
         bodyLayout = new TableLayoutPanel();
         leftColumn = new TableLayoutPanel();
@@ -111,12 +110,18 @@ partial class MainForm
         //
         _settingsItem.Name = "_settingsItem";
         _settingsItem.Text = "Cài đặt";
-        _settingsItem.DropDownItems.AddRange(new ToolStripItem[] { _configureItem, _setupSeparator, _serviceInstallItem, _serviceUninstallItem, _printerSeparator, InstalledPrintersItem, _testPrinterInstallItem, _testPrinterUninstallItem, _clearTestFilesItem, _updateSeparator, _checkUpdateItem });
+        _settingsItem.DropDownItems.AddRange(new ToolStripItem[] { _configureItem, _adminStartupItem, _setupSeparator, _serviceInstallItem, _serviceUninstallItem, _printerSeparator, InstalledPrintersItem, _testPrinterInstallItem, _testPrinterUninstallItem, _clearTestFilesItem });
         //
         // _configureItem
         //
         _configureItem.Name = "_configureItem";
         _configureItem.Text = "Cấu hình máy và server…";
+        //
+        // _adminStartupItem
+        //
+        _adminStartupItem.Name = "_adminStartupItem";
+        _adminStartupItem.Text = "Luôn chạy với quyền quản trị";
+        _adminStartupItem.ToolTipText = "Áp dụng cả khi khởi động cùng Windows.";
         //
         // _serviceInstallItem
         //
@@ -149,11 +154,6 @@ partial class MainForm
         _clearTestFilesItem.Name = "_clearTestFilesItem";
         _clearTestFilesItem.Text = "Dọn file in thử…";
         //
-        // _checkUpdateItem
-        //
-        _checkUpdateItem.Name = "_checkUpdateItem";
-        _checkUpdateItem.Text = "Kiểm tra cập nhật…";
-        //
         // _languageItem
         //
         _languageItem.Name = "_languageItem";
@@ -178,10 +178,6 @@ partial class MainForm
         // _printerSeparator
         //
         _printerSeparator.Name = "_printerSeparator";
-        //
-        // _updateSeparator
-        //
-        _updateSeparator.Name = "_updateSeparator";
         //
         // rootLayout
         //
@@ -611,19 +607,18 @@ partial class MainForm
     private MenuStrip _menu;
     private ToolStripMenuItem _settingsItem;
     private ToolStripMenuItem _configureItem;
+    internal ToolStripMenuItem _adminStartupItem;
     private ToolStripMenuItem _serviceInstallItem;
     private ToolStripMenuItem _serviceUninstallItem;
     private ToolStripMenuItem _testPrinterInstallItem;
     private ToolStripMenuItem _testPrinterUninstallItem;
     internal ToolStripMenuItem InstalledPrintersItem;
     private ToolStripMenuItem _clearTestFilesItem;
-    internal ToolStripMenuItem _checkUpdateItem;
     private ToolStripMenuItem _languageItem;
     private ToolStripMenuItem _vietnameseItem;
     private ToolStripMenuItem _englishItem;
     private ToolStripSeparator _setupSeparator;
     private ToolStripSeparator _printerSeparator;
-    private ToolStripSeparator _updateSeparator;
     private TableLayoutPanel rootLayout;
     private TableLayoutPanel bodyLayout;
     private TableLayoutPanel leftColumn;

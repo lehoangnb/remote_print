@@ -29,6 +29,7 @@ internal static class L
             foreach (ToolStripItem item in items)
             {
                 item.Text = T(item.Text ?? "");
+                item.ToolTipText = T(item.ToolTipText ?? "");
                 if (item is ToolStripDropDownItem dropDown) TranslateItems(dropDown.DropDownItems);
             }
         }

@@ -43,6 +43,11 @@ test('client release upload, validation, immutable download and restart persiste
     attachClientUpdates(app, { dataDir,
       adminAuth: (req, res, next) => req.headers.authorization === 'Bearer test' ? next() : res.sendStatus(401),
       audit: (...event) => audit.push(event) });
+    // Ordinary application routes registered after the update middleware keep their JSON contracts.
+    app.get('/api/client/status', (_req, res) => res.json({ status: 'approved' }));
+    app.post('/api/client/register', (_req, res) => res.json({ status: 'pending' }));
+    app.get('/api/client/peers', (_req, res) => res.json([]));
+    app.get('/api/client/tunnel', (_req, res) => res.json({ mode: 'mesh-v1' }));
     const server = app.listen(0, '127.0.0.1');
     await new Promise(resolve => server.once('listening', resolve));
     t.after(() => new Promise(resolve => server.close(resolve)));
@@ -50,7 +55,7 @@ test('client release upload, validation, immutable download and restart persiste
   }
   let base = await start();
   const headers = { authorization: 'Bearer test', 'content-type': 'application/zip' };
-  const upload = (bytes, runtime = 'win-x64', auth = headers, query = '') => fetch(`${base}/api/admin/updates/${runtime}?notes=Test${query}`, { method: 'PUT', headers: auth, body: bytes });
+  const upload = (bytes, runtime = 'win-x64', auth = headers, query = '', notes = 'Test') => fetch(`${base}/api/admin/updates/${runtime}?notes=${encodeURIComponent(notes)}${query}`, { method: 'PUT', headers: auth, body: bytes });
   assert.equal((await fetch(base + '/api/client/updates/win-x64')).status, 204);
   assert.equal((await fetch(base + '/api/admin/updates')).status, 401);
   assert.equal((await upload(packageZip(), 'win-x64', { 'content-type': 'application/zip' })).status, 401);
@@ -64,6 +69,23 @@ test('client release upload, validation, immutable download and restart persiste
   const published = await upload(bytes);
   assert.equal(published.status, 201);
   const release = await published.json();
+  const clientHeaders = { 'x-client-version': '1.1.3', 'x-client-runtime': 'win-x64' };
+  const updateCommand = response => JSON.parse(Buffer.from(response.headers.get('x-client-update'), 'base64').toString('utf8'));
+  for (const [route, method, body] of [['status', 'GET', { status: 'approved' }], ['register', 'POST', { status: 'pending' }], ['peers', 'GET', []], ['tunnel', 'GET', { mode: 'mesh-v1' }]]) {
+    const response = await fetch(`${base}/api/client/${route}`, { method, headers: clientHeaders });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), body);
+    assert.deepEqual(updateCommand(response), { version: release.version, runtime: release.runtime, size: release.size, sha256: release.sha256, downloadPath: release.downloadPath, notes: '' });
+    assert.match(response.headers.get('cache-control'), /no-store/);
+    assert.ok(response.headers.get('x-client-update').length < 2048);
+  }
+  for (const headers of [{}, { ...clientHeaders, 'x-client-version': '1.2.0' }, { ...clientHeaders, 'x-client-version': '1.2.0.0' },
+    { ...clientHeaders, 'x-client-version': '1.2.1' }, { ...clientHeaders, 'x-client-version': 'bad' },
+    { ...clientHeaders, 'x-client-runtime': 'win-arm64' }, { ...clientHeaders, 'x-client-runtime': 'win-x86' }]) {
+    const response = await fetch(base + '/api/client/status', { headers });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('x-client-update'), null, 'Only an older valid version with a published matching runtime receives a command');
+  }
   assert.equal(release.version, '1.2.0', 'Version is derived from the ZIP without request metadata');
   assert.equal(release.sha256, createHash('sha256').update(bytes).digest('hex'));
   assert.equal(release.size, bytes.length);
@@ -76,16 +98,26 @@ test('client release upload, validation, immutable download and restart persiste
   assert.equal((await upload(packageZip('1.1.9'), 'win-x64', headers, '&version=99.0.0')).status, 409, 'Claiming a newer version cannot bypass the version in the ZIP');
   assert.equal((await upload(Buffer.from('truncated'))).status, 400);
   assert.equal((await (await fetch(base + '/api/client/updates/win-x64')).json()).version, '1.2.0');
-  const nextRelease = await upload(packageZip('1.3.0'), 'win-x64', headers, '&version=9.9.9');
+  const nextRelease = await upload(packageZip('1.3.0'), 'win-x64', headers, '&version=9.9.9', 'a'.repeat(4000));
   assert.equal(nextRelease.status, 201);
   assert.equal((await nextRelease.json()).version, '1.3.0', 'Request version cannot replace the ZIP version');
+  const longNotesResponse = await fetch(base + '/api/client/status', { headers: clientHeaders });
+  assert.ok(longNotesResponse.headers.get('x-client-update').length < 2048, 'Maximum-length release notes never inflate command headers');
+  assert.equal(updateCommand(longNotesResponse).notes, '');
   assert.deepEqual(Buffer.from(await (await fetch(base + release.downloadPath)).arrayBuffer()), bytes, 'in-flight old release remains downloadable');
   assert.equal((await upload(packageZip('1.2.0', 'win-arm64'), 'win-arm64')).status, 201);
   base = await start();
+  assert.equal(updateCommand(await fetch(base + '/api/client/status', { headers: clientHeaders })).version, '1.3.0', 'Commands use the persisted newest release after server restart');
+  const arm = await fetch(base + '/api/client/status', { headers: { ...clientHeaders, 'x-client-runtime': 'win-arm64' } });
+  assert.equal(updateCommand(arm).runtime, 'win-arm64');
   const persisted = await (await fetch(base + '/api/admin/updates', { headers })).json();
   assert.deepEqual(persisted.map(r => r.version), ['1.3.0', '1.2.0']);
   assert.equal((await fetch(base + '/api/client/updates/win-x86')).status, 400);
   assert.equal((await fetch(base + '/api/client/updates/packages/missing.zip')).status, 404);
   const files = await fs.readdir(path.join(dataDir, 'client-updates'));
   assert.equal(files.some(file => file.endsWith('.upload') || file.endsWith('.tmp')), false);
+  await fs.writeFile(path.join(dataDir, 'client-updates', 'win-x64.json'), '{damaged');
+  const damagedManifest = await fetch(base + '/api/client/status', { headers: clientHeaders });
+  assert.equal(damagedManifest.status, 200, 'A damaged release manifest does not interrupt ordinary API traffic');
+  assert.equal(damagedManifest.headers.get('x-client-update'), null);
 });

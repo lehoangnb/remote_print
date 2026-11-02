@@ -67,6 +67,22 @@ export function attachClientUpdates(app, { dataDir, adminAuth, audit }) {
     try { return JSON.parse(fs.readFileSync(manifestPath(runtime), 'utf8')); }
     catch (e) { if (e.code === 'ENOENT') return null; throw e; }
   };
+  app.use('/api/client', (req, res, next) => {
+    const version = req.header('x-client-version'), runtime = req.header('x-client-runtime');
+    if (validVersion(version) && runtimes.has(runtime)) {
+      // Commands travel with normal API replies; clients never need an update polling timer.
+      res.set('Cache-Control', 'no-store');
+      let release;
+      try { release = latest(runtime); }
+      catch { return next(); } // A damaged release manifest must not interrupt normal client traffic.
+      if (release && validVersion(release.version) && compare(version, release.version) < 0) {
+        // Omit release notes to keep the response header small even with 4000-character notes.
+        const { version, runtime, size, sha256, downloadPath } = release;
+        res.set('x-client-update', Buffer.from(JSON.stringify({ version, runtime, size, sha256, downloadPath, notes: '' })).toString('base64'));
+      }
+    }
+    next();
+  });
   app.get('/api/admin/updates', adminAuth, (_req, res) => res.set('Cache-Control', 'no-store').json([...runtimes].map(latest).filter(Boolean)));
   app.put('/api/admin/updates/:runtime', adminAuth, async (req, res, next) => {
     const { runtime } = req.params, { notes = '' } = req.query;

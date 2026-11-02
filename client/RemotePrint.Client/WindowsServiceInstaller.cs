@@ -221,10 +221,10 @@ internal sealed class WindowsServiceInstaller(IServiceRegistrar registrar, Setup
         return false;
     }
 
-    public void Uninstall()
+    public void Uninstall(string? userSid = null)
     {
         Guard.RequireAdministrator("gỡ dịch vụ Remote Print");
-        Agent.Unregister(WindowsIdentity.GetCurrent().User!.Value);
+        Agent.Unregister(userSid ?? WindowsIdentity.GetCurrent().User!.Value);
         if (!registrar.Exists()) return;
         registrar.Stop();
         registrar.Remove();

@@ -28,6 +28,7 @@ public sealed class ClientEngine : IDisposable, INativeRelayHost
     private string _tunnelStatus = "Chưa cấu hình";
     private Dictionary<string, string> _tunnelPeers = new(StringComparer.OrdinalIgnoreCase);
     private ServiceSnapshot _snapshot = new();
+    private ClientUpdateRequest? _pendingUpdate;
     private string? _shareError;
     private bool _testPrinterChecked;
     public string DataDirectory => _store.DirectoryPath;
@@ -71,8 +72,17 @@ public sealed class ClientEngine : IDisposable, INativeRelayHost
     private void OpenApi()
     {
         _api?.Dispose();
-        _api = string.IsNullOrWhiteSpace(_config.ServerUrl) ? null : new RemotePrintApi(_config);
+        Volatile.Write(ref _pendingUpdate, null);
+        var server = _config.ServerUrl;
+        _api = string.IsNullOrWhiteSpace(server) ? null : new RemotePrintApi(_config, release => ReceiveUpdate(server, release));
         _registered = false;
+    }
+
+    public void ReceiveUpdate(string server, ClientRelease? release)
+    {
+        // Keep the issuing server with the command, including across concurrent heartbeats/configuration changes.
+        if (server == _config.ServerUrl)
+            Volatile.Write(ref _pendingUpdate, release is null ? null : new ClientUpdateRequest(server, release));
     }
 
     public async Task TickAsync(CancellationToken ct)
@@ -373,8 +383,10 @@ public sealed class ClientEngine : IDisposable, INativeRelayHost
 
     private void Publish()
     {
+        var update = Volatile.Read(ref _pendingUpdate);
         var snapshot = new ServiceSnapshot
         {
+            Update = update?.ServerUrl == _config.ServerUrl ? update : null,
             NativePrinting = true,
             PrinterRemoval = true,
             InstalledPrinters = PrintRelay.InstalledPrinters,
