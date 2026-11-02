@@ -233,6 +233,16 @@ tbody tr:hover { background: #fafbfe; }
 
 
 /* Pairing is a focused, occasional action; keep the dashboard for devices. */
+.update-fields { display: grid; gap: 5px; }
+.update-fields label { margin-top: 4px; font-size: 14px; font-weight: 600; }
+.update-fields textarea { width: 100%; padding: 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit; resize: vertical; }
+#updates-current { white-space: pre-line; font-size: 13px; color: var(--muted); }
+#updates-dialog { width: min(600px, calc(100% - 32px)); }
+#updates-dialog .pair-heading { padding-top: 20px; }
+#updates-dialog .pair-body { padding-top: 12px; padding-bottom: 12px; }
+#updates-dialog textarea { min-height: 60px; height: 60px; }
+#updates-dialog .pair-hint { margin-top: 6px; font-size: 12px; }
+#updates-dialog .pair-status { margin-top: 6px; }
 .pair-dialog { width: min(500px, calc(100% - 32px)); max-height: calc(100dvh - 40px); padding: 0; border: 1px solid var(--line); border-radius: 16px; color: var(--ink); background: #fff; box-shadow: 0 24px 80px #14213b30; overflow: auto; }
 .pair-dialog::backdrop { background: #14213b66; backdrop-filter: blur(3px); }
 .pair-heading { position: relative; padding: 26px 26px 0; }

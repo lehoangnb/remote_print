@@ -23,6 +23,16 @@ internal static class Program
         // single-instance mutex: otherwise the elevated copy would just raise the open
         // manager window and the installation would silently do nothing.
         if (ElevatedSetup.IsRequested(args)) return ElevatedSetup.RunChild(args);
+        var waitIndex = Array.IndexOf(args, "--wait-for-exit");
+        if (waitIndex >= 0 && waitIndex + 1 < args.Length && int.TryParse(args[waitIndex + 1], out var previousId))
+        {
+            try
+            {
+                using var previous = System.Diagnostics.Process.GetProcessById(previousId);
+                if (!previous.WaitForExit(30000)) return 5;
+            }
+            catch (ArgumentException) { }
+        }
 
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         Application.EnableVisualStyles();

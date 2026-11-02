@@ -9,7 +9,7 @@ namespace RemotePrint.Client;
 
 // Console window of the desktop agent. It only talks to the Windows Service over the
 // named pipe, so closing the window hides it and keeps the service running.
-public sealed class MainForm : Form
+public sealed partial class MainForm : Form
 {
     private const int Edge = 12;
     private const int ColumnGap = 10;
@@ -99,7 +99,7 @@ public sealed class MainForm : Form
         {
             if (e.ListItem is string name && !_availablePrinterNames.Contains(name)) e.Value = name + L.T(" (không khả dụng)");
         };
-        _timer.Tick += async (_, _) => { await RefreshAsync(); await SavePrinterSelectionAsync(); };
+        _timer.Tick += async (_, _) => { if (_updateBusy) return; await RefreshAsync(); await SavePrinterSelectionAsync(); await CheckScheduledUpdateAsync(); };
         _timer.Start();
         FormClosing += (_, e) =>
         {
@@ -151,7 +151,7 @@ public sealed class MainForm : Form
         LanguageChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    public void StopAgent() => _timer.Stop();
+    public void StopAgent() { _timer.Stop(); _updateCancellation?.Cancel(); }
 
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
@@ -210,6 +210,9 @@ public sealed class MainForm : Form
             language.DropDownItems.Add(item);
         }
         _menu.Items.Add(language);
+        settings.DropDownItems.Add(new ToolStripSeparator());
+        settings.DropDownItems.Add(_checkUpdateItem);
+        _checkUpdateItem.Click += async (_, _) => await CheckForUpdateAsync(manual: true);
     }
 
     private void BuildLayout()

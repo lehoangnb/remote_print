@@ -31,6 +31,7 @@
         <div class="header-actions">
           <label class="auto-refresh"><input id="auto-refresh" type="checkbox" checked>Tự động</label>
           <button id="refresh" type="button" class="button button-secondary"><svg class="icon" aria-hidden="true"><use href="/icons.svg#refresh"/></svg>Làm mới</button>
+          <button id="updates-open" type="button" class="button button-secondary">Cập nhật client</button>
           <button id="logout" type="button" class="button button-ghost"><svg class="icon" aria-hidden="true"><use href="/icons.svg#logout"/></svg>Đăng xuất</button>
           <label class="language-picker"><select class="language-select" aria-label="Language / Ngôn ngữ"><option value="vi">Tiếng Việt</option><option value="en">English</option></select></label>
         </div>
@@ -91,6 +92,27 @@
       <p id="pair-status" class="pair-status" role="status" aria-live="polite"></p>
     </div>
     <div class="pair-footer"><button id="pair-create" type="button" class="button button-secondary" autofocus>Tạo mã</button><button id="pair-copy" type="button" class="button button-primary" disabled>Sao chép mã</button></div>
+  </dialog>
+  <dialog id="updates-dialog" class="pair-dialog" aria-labelledby="updates-title">
+    <form id="updates-form">
+      <div class="pair-heading">
+        <button id="updates-close" type="button" class="pair-close" aria-label="Đóng hộp thoại">×</button>
+        <h2 id="updates-title">Cập nhật client</h2>
+        <p>Tải gói ZIP lên server để client kiểm tra và đề nghị cập nhật.</p>
+      </div>
+      <div class="pair-body update-fields">
+        <div id="updates-current" role="status"></div>
+        <label for="updates-runtime">Kiến trúc</label>
+        <select id="updates-runtime"><option value="win-x64">Windows x64</option><option value="win-arm64">Windows ARM64</option></select>
+        <label for="updates-file">Gói client ZIP</label>
+        <input id="updates-file" type="file" accept=".zip,application/zip" required>
+        <label for="updates-notes">Ghi chú phát hành</label>
+        <textarea id="updates-notes" rows="3" maxlength="4000"></textarea>
+        <p class="pair-hint">Chọn gói ZIP client từ thư mục dist. Phiên bản được tự động đọc từ gói và phải lớn hơn bản đã phát hành.</p>
+        <p id="updates-status" class="pair-status" role="status" aria-live="polite"></p>
+      </div>
+      <div class="pair-footer"><button id="updates-publish" type="submit" class="button button-primary">Tải lên và phát hành</button></div>
+    </form>
   </dialog>
   <script src="/app.js" type="module"></script>
 </body>

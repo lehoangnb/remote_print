@@ -1,10 +1,15 @@
 param(
     [ValidateSet('win-x64', 'win-arm64')]
-    [string]$Runtime = 'win-x64'
+    [string]$Runtime = 'win-x64',
+    [string]$Version = ''
 )
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
+if (-not $Version) { $Version = ([xml](Get-Content -LiteralPath (Join-Path $projectRoot 'client\Directory.Build.props') -Raw)).Project.PropertyGroup.Version }
+if ($Version -notmatch '^(0|[1-9]\d{0,4})(\.(0|[1-9]\d{0,4})){2,3}$' -or @($Version.Split('.') | Where-Object { [int]$_ -gt 65534 }).Count -gt 0) {
+    throw 'Version must contain 3 or 4 numeric components, each at most 65534.'
+}
 $projectFile = Join-Path $projectRoot 'client\RemotePrint.Client\RemotePrint.Client.csproj'
 $outputDirectory = Join-Path $projectRoot "dist\client-$Runtime"
 
@@ -21,6 +26,7 @@ dotnet publish $projectFile `
     -c Release `
     -r $Runtime `
     --self-contained false `
+    -p:Version=$Version `
     -o $outputDirectory
 if ($LASTEXITCODE -ne 0) { throw 'Client publish failed.' }
 
@@ -28,6 +34,7 @@ dotnet publish (Join-Path $projectRoot 'client\RemotePrint.Service\RemotePrint.S
     -c Release `
     -r $Runtime `
     --self-contained false `
+    -p:Version=$Version `
     -o (Join-Path $outputDirectory 'Service')
 if ($LASTEXITCODE -ne 0) { throw 'Service publish failed.' }
 
@@ -47,10 +54,10 @@ if ((Get-FileHash -LiteralPath $wireGuardPackage -Algorithm SHA256).Hash -ne $wi
 }
 
 $hashes = [ordered]@{}
-Get-ChildItem -LiteralPath $outputDirectory -File -Recurse | Where-Object { $_.Extension -in '.dll', '.exe', '.msi' } | ForEach-Object {
+Get-ChildItem -LiteralPath $outputDirectory -File -Recurse | ForEach-Object {
     $hashes[$_.FullName.Substring($outputDirectory.Length).TrimStart('\')] = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
 }
-@{ protocol = 'native-raw-v1'; build = ('native-raw-' + [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss')); files = $hashes } |
+@{ protocol = 'native-raw-v1'; version = $Version; runtime = $Runtime; build = ('native-raw-' + [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss')); files = $hashes } |
     ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $outputDirectory 'build-info.json') -Encoding UTF8
 $archivePath = Join-Path (Split-Path -Parent $outputDirectory) "RemotePrint.Client-$Runtime.zip"
 Compress-Archive -Path (Join-Path $outputDirectory '*') -DestinationPath $archivePath -Force

@@ -137,6 +137,52 @@ của người dùng được giữ nguyên. Kết nối UNC đã cài trước 
 đổi: kết nối máy in lại từ app để tạo queue driver/RAW mới. Nếu máy đã chạy một LPD server trên loopback 515,
 cần giải quyết xung đột cổng trước khi khởi động service mới.
 
+## Tự động cập nhật client
+
+Trang quản trị có nút **Cập nhật client** để tải và phát hành gói ZIP cho
+Windows x64 hoặc ARM64. Chọn đúng kiến trúc, gói ZIP,
+ghi chú rồi bấm **Tải lên và phát hành**. Server tự đọc phiên bản từ
+`build-info.json` trong ZIP, không cần nhập phiên bản. Chỉ quản trị viên đã đăng nhập được
+phát hành; bản mới phải có phiên bản lớn hơn bản hiện tại của cùng kiến trúc.
+
+Client kiểm tra khi mở ứng dụng (kể cả chạy trong khay hệ thống) và mỗi 6 giờ.
+Khi có phiên bản mới, ứng dụng hiện phiên bản/ghi chú và hỏi người dùng trước
+khi tải, cài đặt. Chọn **Không** để tiếp tục sử dụng; cùng bản đó không hỏi lại
+trong phiên chạy hiện tại. Có thể chủ động chọn **Cài đặt > Kiểm tra cập nhật…**.
+Kiểm tra nền thất bại không hiện hộp lỗi; kiểm tra thủ công sẽ báo kết quả.
+
+Sau khi đồng ý, client kiểm tra kích thước, SHA-256, kiến trúc, phiên bản và
+manifest của toàn bộ file rồi yêu cầu UAC để cập nhật cả giao diện lẫn service.
+Ứng dụng tự mở lại từ thư mục đã cài. Service khởi động lại nên kết nối in
+tạm ngắt; cấu hình, danh tính thiết bị và dữ liệu spool vẫn được giữ nguyên.
+Nếu không khởi động được service mới, bộ cài thử khôi phục service/bản cũ và
+báo lỗi; lỗi khôi phục được ghi trong nhật ký cài đặt.
+
+Build gói phát hành với phiên bản tăng dần, ví dụ:
+
+```powershell
+.\scripts\publish-client.ps1 -Runtime win-x64 -Version 1.1.1
+.\scripts\publish-client.ps1 -Runtime win-arm64 -Version 1.1.1
+```
+
+Tải file `dist/RemotePrint.Client-win-x64.zip` hoặc
+`dist/RemotePrint.Client-win-arm64.zip` lên web; không chọn ZIP bọc script
+`RemotePrint-Update-win-x64.zip`. Phiên bản mặc định nằm trong
+`client/Directory.Build.props` (bản đầu hỗ trợ tự cập nhật: **1.1.0**).
+Phiên bản có 3 hoặc 4 phần số, mỗi phần từ 0 tới 65534.
+
+Gói/metadata được lưu bền vững tại `DATA_DIR/client-updates` trong volume dữ
+liệu của server. Server giữ các gói trước để lượt tải đang chạy không bị gián
+đoạn; không tự dọn lịch sử gói. API tải gói là công khai, chỉ chứa file phát
+hành, không đóng gói `.env`, khóa hay cấu hình máy vào gói client.
+Reverse proxy cần cho phép upload ZIP tới 256 MiB và thời gian tải phù hợp.
+Client dùng HTTPS của server đã cấu hình (HTTP chỉ được phép với loopback để
+thử cục bộ), không chuyển hướng sang máy chủ tải khác.
+
+**Triển khai lần đầu:** cập nhật server và cài thủ công gói client 1.1.0 một
+lần trên các máy cũ. Từ phiên bản này, các bản tiếp theo được đề nghị cài qua
+ứng dụng; client cũ chưa có cơ chế tự cập nhật không tự nhận tính năng này.
+
 ## Dữ liệu và trạng thái
 
 Dữ liệu service nằm trong `%ProgramData%\RemotePrint\Service`, chỉ SYSTEM và
@@ -210,6 +256,8 @@ dotnet artifacts/checks/RemotePrint.Checks.dll --native-relay-check "$PWD"
 dotnet artifacts/checks/RemotePrint.Checks.dll --installed-printer-check "$PWD"
 dotnet artifacts/checks/RemotePrint.Checks.dll --test-printer-check "$PWD"
 dotnet artifacts/checks/RemotePrint.Checks.dll --autosave-check
+dotnet artifacts/checks/RemotePrint.Checks.dll --update-check "$PWD"
+dotnet artifacts/checks/RemotePrint.Checks.dll --installer-check "$PWD"
 dotnet artifacts/checks/RemotePrint.Checks.dll --mesh-check "$PWD"
 ```
 

@@ -113,7 +113,7 @@ internal sealed class WindowsServiceInstaller(IServiceRegistrar registrar, Setup
     // always the running executable's own folder.
     public string PackageRoot => packageRoot ?? SetupPaths.PackageRoot;
 
-    public void Install(string userSid, string? migrationFile)
+    public string Install(string userSid, string? migrationFile)
     {
         Guard.RequireAdministrator("cài dịch vụ Remote Print");
         if (!File.Exists(SetupPaths.ServiceExecutable(PackageRoot)))
@@ -132,9 +132,28 @@ internal sealed class WindowsServiceInstaller(IServiceRegistrar registrar, Setup
             var update = registrar.Exists();
             var previousBinary = update ? registrar.CurrentBinaryPath() : null;
             if (update) registrar.Stop();
-            registrar.Configure(SetupPaths.ServiceExecutable(version), update: update);
-            Agent.Register(userSid, Path.Combine(version, "RemotePrint.Client.exe"));
-            registrar.Start();
+            try
+            {
+                registrar.Configure(SetupPaths.ServiceExecutable(version), update: update);
+                Agent.Register(userSid, Path.Combine(version, "RemotePrint.Client.exe"));
+                registrar.Start();
+            }
+            catch (Exception installError) when (update && previousBinary is not null)
+            {
+                try
+                {
+                    registrar.Stop();
+                    registrar.Configure(previousBinary, update: true);
+                    Agent.Register(userSid, Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(previousBinary))!, "RemotePrint.Client.exe"));
+                    registrar.Start();
+                }
+                catch (Exception rollbackError)
+                {
+                    throw new InvalidOperationException(installError.Message + "\n" +
+                        "Không khôi phục được dịch vụ cũ: " + rollbackError.Message, installError);
+                }
+                throw;
+            }
             Roots.WriteLog($"Installed successfully: {DateTime.Now:O}");
             if (update && previousBinary is not null)
             {
@@ -144,6 +163,7 @@ internal sealed class WindowsServiceInstaller(IServiceRegistrar registrar, Setup
                     Roots.WriteLog($"Installed successfully; old versions not fully removed: {ex.Message}");
                 }
             }
+            return Path.Combine(version, "RemotePrint.Client.exe");
         }
         catch (Exception ex)
         {

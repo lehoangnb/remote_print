@@ -14,6 +14,7 @@ import { cleanText, validateRegistration } from './validation.js';
 import { isTunnelKey } from './tunnel-policy.js';
 import { attachMeshTransport } from './mesh-transport.js';
 import { EnrollmentInvites } from './enrollment.js';
+import { attachClientUpdates } from './client-updates.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -109,6 +110,7 @@ function adminAuth(req, res, next) {
 }
 
 app.get('/health', (_req, res) => res.json({ ok: true, time: new Date().toISOString() }));
+attachClientUpdates(app, { dataDir, adminAuth, audit: (action, detail) => store.audit(action, detail) });
 
 app.post('/api/client/register', async (req, res) => {
   const input = validateRegistration(req.body ?? {});

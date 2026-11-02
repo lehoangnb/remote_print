@@ -19,6 +19,53 @@ const pairCopy = document.getElementById('pair-copy');
 const pairCreate = document.getElementById('pair-create');
 let pairRevision = 0;
 let lastUpdated = null;
+const updatesDialog = document.getElementById('updates-dialog');
+const updateStatus = document.getElementById('updates-status');
+const updateCurrent = document.getElementById('updates-current');
+const updatePublish = document.getElementById('updates-publish');
+let updateUpload = null;
+let releases = [];
+function renderReleases() {
+  updateCurrent.textContent = releases.length ? releases.map(r => `${r.runtime}: ${r.version} · ${(r.size / 1048576).toFixed(1)} MiB`).join('\n') : t('Chưa có bản cập nhật trên server.');
+}
+document.getElementById('updates-open').addEventListener('click', async () => {
+  updateStatus.textContent = ''; updateCurrent.textContent = t('Đang tải…'); updatesDialog.showModal();
+  const token = state.token;
+  try { const result = await api('/api/admin/updates'); if (token === state.token) { releases = result; renderReleases(); } }
+  catch (e) { if (token === state.token) updateStatus.textContent = e.message; }
+});
+document.getElementById('updates-close').addEventListener('click', () => updatesDialog.close());
+updatesDialog.addEventListener('close', () => {
+  updateUpload?.abort();
+  document.getElementById('updates-file').value = '';
+});
+document.getElementById('updates-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  if (updateUpload) return;
+  const file = document.getElementById('updates-file').files[0];
+  if (!file) return;
+  if (file.size > 256 * 1048576) { updateStatus.textContent = t('Gói cập nhật vượt quá 256 MiB.'); return; }
+  const token = state.token;
+  const runtime = document.getElementById('updates-runtime').value;
+  const query = new URLSearchParams({ notes: document.getElementById('updates-notes').value.trim() });
+  updatePublish.disabled = true; updateStatus.textContent = t('Đang tải bản cập nhật…');
+  const controller = new AbortController(); updateUpload = controller;
+  const timeout = setTimeout(() => controller.abort(), 10 * 60 * 1000);
+  try {
+    const response = await fetch(`/api/admin/updates/${runtime}?${query}`, { method: 'PUT', body: file, signal: controller.signal,
+      headers: { authorization: 'Bearer ' + token, 'content-type': 'application/zip' } });
+    const body = await response.json().catch(() => ({}));
+    if (token !== state.token) return;
+    if (response.status === 401) { logout(t('Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại.')); return; }
+    if (!response.ok) throw new Error(errorMessages()[body.error] || t('Không tải được gói cập nhật. Hãy kiểm tra kết nối và giới hạn tải lên của proxy.'));
+    releases = releases.filter(r => r.runtime !== runtime).concat(body); renderReleases();
+    updateStatus.textContent = t('Đã phát hành. Client sẽ đề nghị cập nhật trong lần kiểm tra tiếp theo.');
+    document.getElementById('updates-file').value = '';
+  } catch (e) {
+    if (token === state.token && updatesDialog.open) updateStatus.textContent = e.name === 'AbortError' ? t('Đã hủy hoặc hết thời gian cập nhật.') : e.message;
+  } finally { clearTimeout(timeout); updateUpload = null; updatePublish.disabled = false; }
+});
+window.addEventListener('languagechange-local', renderReleases);
 document.getElementById('pair-open').addEventListener('click', () => pairDialog.showModal());
 document.getElementById('pair-close').addEventListener('click', () => pairDialog.close());
 pairDialog.addEventListener('close', () => {
@@ -55,7 +102,12 @@ const errorMessages = () => ({
   ROOM_IN_USE: t("Room đang có máy. Chuyển máy sang Room khác trước khi xóa."),
   ROOM_NOT_FOUND: t("Không tìm thấy Room. Hãy làm mới danh sách."),
   CLIENT_NOT_FOUND: t("Không tìm thấy máy client. Hãy làm mới danh sách."),
-  SERVER_ERROR: t("Server gặp lỗi. Hãy thử lại hoặc kiểm tra nhật ký server.")
+  SERVER_ERROR: t("Server gặp lỗi. Hãy thử lại hoặc kiểm tra nhật ký server."),
+  INVALID_UPDATE_METADATA: t("Thông tin cập nhật không hợp lệ."),
+  INVALID_UPDATE_PACKAGE: t("Gói cập nhật không hợp lệ hoặc không khớp phiên bản/kiến trúc."),
+  UPDATE_VERSION_MUST_INCREASE: t("Phiên bản phải lớn hơn bản đã phát hành."),
+  UPDATE_UPLOAD_BUSY: t("Đang có gói khác được tải lên. Hãy thử lại."),
+  UPDATE_TOO_LARGE: t("Gói cập nhật vượt quá 256 MiB.")
 });
 
 class ApiError extends Error {
@@ -92,6 +144,8 @@ function startPolling() {
 }
 
 function logout(message = '') {
+  updateUpload?.abort();
+  if (updatesDialog.open) updatesDialog.close();
   if (pairDialog.open) pairDialog.close();
   clearTimeout(pairExpiry); pairCode.value = ''; pairStatus.textContent = '';
   state.token = null;

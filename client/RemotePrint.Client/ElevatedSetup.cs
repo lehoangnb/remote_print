@@ -33,9 +33,9 @@ internal static class ElevatedSetup
 
     public static bool IsRequested(string[] args) => args.Contains(SetupSwitch);
 
-    public static async Task RunAsync(SetupOperation operation, string? migrationFile)
+    public static async Task<string?> RunAsync(SetupOperation operation, string? migrationFile, string? packageExecutable = null)
     {
-        var executable = Environment.ProcessPath
+        var executable = packageExecutable ?? Environment.ProcessPath
             ?? throw new InvalidOperationException("Không xác định được tệp thực thi để nâng quyền.");
         var result = Path.Combine(ResultDirectory, $"{ResultPrefix}{Guid.NewGuid():N}.json");
         var start = new ProcessStartInfo(executable)
@@ -72,6 +72,8 @@ internal static class ElevatedSetup
             if (failure is not null) throw new InvalidOperationException(failure);
             if (exitCode != 0)
                 throw new InvalidOperationException($"Trình cài đặt thất bại (mã {exitCode}).");
+            using var document = JsonDocument.Parse(File.ReadAllText(result));
+            return document.RootElement.TryGetProperty("installedPath", out var installed) && installed.ValueKind == JsonValueKind.String ? installed.GetString() : null;
         }
         finally { TryDeleteResult(result); }
     }
@@ -87,10 +89,11 @@ internal static class ElevatedSetup
         var result = Value(args, ResultSwitch);
         if (result is null || !IsSafeResultPath(result)) return 3;
         string? failure = null;
+        string? installedPath = null;
         try
         {
             PrepareResultDirectory();
-            Execute(operation, Value(args, UserSwitch), Value(args, MigrateSwitch));
+            installedPath = Execute(operation, Value(args, UserSwitch), Value(args, MigrateSwitch));
         }
         catch (Exception ex)
         {
@@ -99,7 +102,7 @@ internal static class ElevatedSetup
         try
         {
             using (var file = new FileStream(result, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-                JsonSerializer.Serialize(file, new { ok = failure is null, message = failure });
+                JsonSerializer.Serialize(file, new { ok = failure is null, message = failure, installedPath });
             ProtectResultFile(result, TrustedSid(Value(args, UserSwitch)));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
@@ -110,20 +113,20 @@ internal static class ElevatedSetup
         return failure is null ? 0 : 1;
     }
 
-    private static void Execute(SetupOperation operation, string? userSid, string? migrationFile)
+    private static string? Execute(SetupOperation operation, string? userSid, string? migrationFile)
     {
         switch (operation)
         {
             case SetupOperation.InstallService:
                 SetupPaths.RequireAdministrator("cập nhật Remote Print");
                 PrinterService.RemoveObsoleteVirtualQueue();
-                new WindowsServiceInstaller(new ServiceRegistrar())
+                return new WindowsServiceInstaller(new ServiceRegistrar())
                     .Install(TrustedSid(userSid), TrustedMigration(migrationFile));
-                break;
             case SetupOperation.UninstallService:
                 new WindowsServiceInstaller(new ServiceRegistrar()).Uninstall();
                 break;
         }
+        return null;
     }
 
     // The caller passes its own SID so a service installed under another admin's consent

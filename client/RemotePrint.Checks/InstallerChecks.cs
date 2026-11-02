@@ -121,6 +121,13 @@ internal static partial class Program
                 Directory.Exists(latestVersion) && Directory.Exists(previousVersion),
             "Failed service start preserves existing versions");
         registrar.FailStart = false;
+        var rollbackBinary = registrar.CurrentBinaryPath();
+        registrar.FailNextStarts = 1;
+        Require(Throws(() => installer.Install(TestSid, null), "Simulated start failure") &&
+                registrar.CurrentBinaryPath() == rollbackBinary &&
+                agent.RegisteredPath == Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(rollbackBinary!))!, "RemotePrint.Client.exe") &&
+                File.ReadAllText(config) == "migrated-config",
+            "Failed update restores the previous service binary/startup and preserves configuration");
 
         registrar.Calls.Clear();
         agent.Calls.Clear();
@@ -179,6 +186,7 @@ internal static partial class Program
         public readonly List<(string BinaryPath, bool Update)> Configured = [];
         public bool ExistsFlag;
         public bool FailStart;
+        public int FailNextStarts;
         private string? _binaryPath;
 
         public bool Exists() => ExistsFlag;
@@ -197,7 +205,7 @@ internal static partial class Program
         public void Start()
         {
             Calls.Add("start");
-            if (FailStart) throw new InvalidOperationException("Simulated start failure");
+            if (FailStart || FailNextStarts-- > 0) throw new InvalidOperationException("Simulated start failure");
         }
 
         public void Remove() => Calls.Add("remove");

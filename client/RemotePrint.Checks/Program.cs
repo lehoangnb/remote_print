@@ -27,6 +27,7 @@ internal static partial class Program
         var root = args.Length > 1 ? args[1] : Directory.GetCurrentDirectory();
         switch (args.FirstOrDefault())
         {
+            case "--update-check": CheckClientUpdatesAsync(root).GetAwaiter().GetResult(); return;
             case "--mesh-check": RunMeshChecksAsync(root).GetAwaiter().GetResult(); return;
             case "--native-relay-check": CheckNativeRelayAsync(root).GetAwaiter().GetResult(); return;
             case "--installed-printer-check": CheckInstalledPrintersAsync(root).GetAwaiter().GetResult(); return;
