@@ -40,10 +40,12 @@ internal static partial class Program
         var newer = new Version(current.Major, current.Minor + 1, 0).ToString(3);
         var receivedPaths = new List<string>();
         var badIdentity = false;
+        string? receivedAppliedId = null;
         ClientRelease? manifest = null;
         app.Use(async (context, next) =>
         {
             receivedPaths.Add(context.Request.Path);
+            receivedAppliedId = context.Request.Headers[ClientUpdateProtocol.AppliedReleaseHeader];
             if (context.Request.Headers[ClientUpdateProtocol.VersionHeader] != ClientUpdater.CurrentVersion ||
                 context.Request.Headers[ClientUpdateProtocol.RuntimeHeader] != ClientUpdater.Runtime) badIdentity = true;
             var command = release with { Version = newer };
@@ -51,6 +53,11 @@ internal static partial class Program
             {
                 "same" => command with { Version = current.ToString(3) },
                 "same-four" => command with { Version = current.ToString(4) },
+                "force-same" => command with { Version = current.ToString(3), ForceUpdate = true, ReleaseId = "c9d16cb0-bf4c-4d30-a739-147d66fb32ec" },
+                "force-same-four" => command with { Version = current.ToString(4), ForceUpdate = true, ReleaseId = "c9d16cb0-bf4c-4d30-a739-147d66fb32ec" },
+                "force-downgrade" => command with { Version = "1.0.0", ForceUpdate = true, ReleaseId = Guid.NewGuid().ToString() },
+                "force-no-id" => command with { Version = current.ToString(3), ForceUpdate = true },
+                "force-bad-id" => command with { Version = current.ToString(3), ForceUpdate = true, ReleaseId = "invalid" },
                 "downgrade" => command with { Version = "1.0.0" },
                 "wrong-runtime" => command with { Runtime = "win-x86" },
                 "bad-path" => command with { DownloadPath = "https://other.example/package.zip" },
@@ -92,11 +99,53 @@ internal static partial class Program
         await api.GetStatusAsync(); await api.GetPeersAsync(); await api.GetTunnelAsync(default);
         await api.EnrollTunnelAsync("checks", default); await api.HeartbeatAsync(default);
         Require(commands == 6 && !badIdentity, "Registration, status, peers, tunnel and heartbeat send version/runtime and receive commands");
-        foreach (var value in new[] { "none", "old-server", "same", "same-four", "downgrade", "wrong-runtime", "bad-path", "bad-hash", "bad-size", "bad-version", "bad-number", "malformed", "oversized" })
+        foreach (var value in new[] { "none", "old-server", "same", "same-four", "downgrade", "force-downgrade", "force-no-id", "force-bad-id", "wrong-runtime", "bad-path", "bad-hash", "bad-size", "bad-version", "bad-number", "malformed", "oversized" })
         {
             mode = value; offered = null;
             await api.HeartbeatAsync(default);
             Require(offered is null, "No automatic upgrade for " + value);
+        }
+        foreach (var value in new[] { "force-same", "force-same-four" })
+        {
+            mode = value; offered = null;
+            await api.HeartbeatAsync(default);
+            Require(offered is { ForceUpdate: true }, "Automatic command accepts " + value);
+        }
+        var forced = offered!;
+        var receiptDirectory = Path.Combine(directory, "receipt");
+        Directory.CreateDirectory(receiptDirectory);
+        Require(ClientUpdateProtocol.IsApplicableRelease(forced, receiptDirectory), "An uninstalled forced publication is applicable");
+        ClientUpdateProtocol.RecordAppliedRelease(receiptDirectory, forced);
+        var copiedDirectory = Path.Combine(directory, "installed-receipt");
+        SetupPaths.CopyPackage(receiptDirectory, copiedDirectory);
+        Require(!ClientUpdateProtocol.IsApplicableRelease(forced, copiedDirectory),
+            "A receipt copied into the installed package prevents a same-version reinstall after restart");
+        Require(ClientUpdateProtocol.IsApplicableRelease(forced with { ReleaseId = Guid.NewGuid().ToString() }, copiedDirectory),
+            "Republishing identical bytes with a new identity permits another forced installation");
+        Require(ClientUpdateProtocol.IsApplicableRelease(forced with { Sha256 = new string('1', 64),
+                DownloadPath = $"/api/client/updates/packages/{new string('1', 64)}.zip" }, copiedDirectory),
+            "A receipt only suppresses the matching payload hash");
+        File.WriteAllText(Path.Combine(copiedDirectory, "client-update-receipt.json"), "{damaged");
+        Require(ClientUpdateProtocol.IsApplicableRelease(forced, copiedDirectory), "A damaged receipt does not prevent retrying the publication");
+        Require(receivedPaths.All(path => !path.StartsWith("/api/client/updates/win-")),
+            "Automatic API traffic does not poll update metadata");
+        var liveReceipt = Path.Combine(AppContext.BaseDirectory, "client-update-receipt.json");
+        var previousReceipt = File.Exists(liveReceipt) ? File.ReadAllBytes(liveReceipt) : null;
+        try
+        {
+            ClientUpdateProtocol.RecordAppliedRelease(AppContext.BaseDirectory, forced);
+            offered = null;
+            await api.HeartbeatAsync(default);
+            Require(offered is null && receivedAppliedId == forced.ReleaseId,
+                "An installed client sends the publication receipt and ignores an already applied command");
+            using var installedUpdater = new ClientUpdater();
+            Require(await installedUpdater.CheckAsync(address, default) is null && receivedAppliedId == forced.ReleaseId,
+                "A fresh manual updater also sends the receipt and avoids reinstalling the same publication");
+        }
+        finally
+        {
+            if (previousReceipt is null) File.Delete(liveReceipt);
+            else File.WriteAllBytes(liveReceipt, previousReceipt);
         }
         mode = "failed"; offered = null;
         try { await api.HeartbeatAsync(default); throw new Exception("API failure ignored"); }
@@ -135,12 +184,26 @@ internal static partial class Program
             "A different server does not inherit the previous retry delay");
         Require(!attempts.TryBegin(request, now.AddMinutes(15).AddSeconds(3)),
             "An older in-flight command remains throttled after another package or server was attempted");
+        Require(attempts.TryBegin(request with { Release = request.Release with { ReleaseId = Guid.NewGuid().ToString() } }, now.AddMinutes(15).AddSeconds(4)),
+            "A new publication of the same ZIP does not inherit the previous attempt delay");
+        var policy = new ClientUpdatePolicy();
+        var forcedRequest = new ClientUpdateRequest(address, forced);
+        Require(policy.Decide(forcedRequest, false, true) == ClientUpdateAction.Notify &&
+            policy.Decide(forcedRequest, false, true) == ClientUpdateAction.None &&
+            policy.Decide(forcedRequest with { Release = forced with { ReleaseId = Guid.NewGuid().ToString() } }, false, true) == ClientUpdateAction.Notify,
+            "GUI notifications distinguish forced publications of identical bytes");
+        Require(policy.Decide(forcedRequest, false, false) == ClientUpdateAction.None &&
+            policy.Decide(forcedRequest, true, false) == ClientUpdateAction.Install,
+            "Forced updates preserve standard-user tray behavior and administrator installation policy");
         using var updater = new ClientUpdater();
-        Require(receivedPaths.All(path => !path.StartsWith("/api/client/updates/win-")),
-            "Automatic API traffic does not poll update metadata");
         Require((await updater.CheckAsync(address, default))?.Version == newer,
             "Manual check fetches the latest release for the running architecture");
-        foreach (var value in new[] { "none", "same", "same-four", "downgrade", "wrong-runtime", "bad-path", "bad-hash", "bad-size", "bad-version", "bad-number" })
+        foreach (var value in new[] { "force-same", "force-same-four" })
+        {
+            mode = value;
+            Require((await updater.CheckAsync(address, default))?.ForceUpdate == true, "Manual check accepts " + value);
+        }
+        foreach (var value in new[] { "none", "same", "same-four", "downgrade", "force-downgrade", "force-no-id", "force-bad-id", "wrong-runtime", "bad-path", "bad-hash", "bad-size", "bad-version", "bad-number" })
         {
             mode = value;
             Require(await updater.CheckAsync(address, default) is null, "Manual check offers no update for " + value);

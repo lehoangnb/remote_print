@@ -1,5 +1,8 @@
 {
   "vi": {
+    "Buộc cập nhật dù trùng phiên bản": "Buộc cập nhật dù trùng phiên bản",
+    "Khi bật, client hỗ trợ sẽ cài lại một lần cho mỗi lượt phát hành. Không hạ phiên bản.": "Khi bật, client hỗ trợ sẽ cài lại một lần cho mỗi lượt phát hành. Không hạ phiên bản.",
+    "Đã phát hành. Client đủ điều kiện sẽ nhận lệnh cập nhật trong lần giao tiếp tiếp theo với server.": "Đã phát hành. Client đủ điều kiện sẽ nhận lệnh cập nhật trong lần giao tiếp tiếp theo với server.",
     "Đang xóa máy in, vui lòng chờ…": "Đang xóa máy in, vui lòng chờ…",
     "Đang cài đặt dịch vụ; hãy xác nhận yêu cầu quyền quản trị nếu có…": "Đang cài đặt dịch vụ; hãy xác nhận yêu cầu quyền quản trị nếu có…",
     "Đang gỡ dịch vụ; hãy xác nhận yêu cầu quyền quản trị nếu có…": "Đang gỡ dịch vụ; hãy xác nhận yêu cầu quyền quản trị nếu có…",
@@ -418,6 +421,9 @@
     "Không khôi phục được dịch vụ cũ: ": "Không khôi phục được dịch vụ cũ: "
   },
   "en": {
+    "Buộc cập nhật dù trùng phiên bản": "Force update even with the same version",
+    "Khi bật, client hỗ trợ sẽ cài lại một lần cho mỗi lượt phát hành. Không hạ phiên bản.": "When enabled, supported clients reinstall once per publication. Newer clients are never downgraded.",
+    "Đã phát hành. Client đủ điều kiện sẽ nhận lệnh cập nhật trong lần giao tiếp tiếp theo với server.": "Published. Eligible clients will receive an update command on their next communication with the server.",
     "Cài đặt dịch vụ": "Install service",
     "Gỡ cài đặt ứng dụng": "Uninstall application",
     "Đang xóa máy in, vui lòng chờ…": "Removing printer, please wait…",

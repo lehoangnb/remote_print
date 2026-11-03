@@ -38,7 +38,7 @@ toolsMenu.querySelectorAll('.tools-popup a, .tools-popup button').forEach(item =
 let updateUpload = null;
 let releases = [];
 function renderReleases() {
-  updateCurrent.textContent = releases.length ? releases.map(r => `${r.runtime}: ${r.version} · ${(r.size / 1048576).toFixed(1)} MiB`).join('\n') : t('Chưa có bản cập nhật trên server.');
+  updateCurrent.textContent = releases.length ? releases.map(r => `${r.runtime}: ${r.version} · ${(r.size / 1048576).toFixed(1)} MiB${r.forceUpdate ? ' · ' + t('Buộc cập nhật dù trùng phiên bản') : ''}`).join('\n') : t('Chưa có bản cập nhật trên server.');
 }
 document.getElementById('updates-open').addEventListener('click', async () => {
   updateStatus.textContent = ''; updateCurrent.textContent = t('Đang tải…'); updatesDialog.showModal();
@@ -50,6 +50,7 @@ document.getElementById('updates-close').addEventListener('click', () => updates
 updatesDialog.addEventListener('close', () => {
   updateUpload?.abort();
   document.getElementById('updates-file').value = '';
+  document.getElementById('updates-force').checked = false;
 });
 document.getElementById('updates-form').addEventListener('submit', async event => {
   event.preventDefault();
@@ -59,7 +60,8 @@ document.getElementById('updates-form').addEventListener('submit', async event =
   if (file.size > 256 * 1048576) { updateStatus.textContent = t('Gói cập nhật vượt quá 256 MiB.'); return; }
   const token = state.token;
   const runtime = document.getElementById('updates-runtime').value;
-  const query = new URLSearchParams({ notes: document.getElementById('updates-notes').value.trim() });
+  const query = new URLSearchParams({ notes: document.getElementById('updates-notes').value.trim(),
+    forceUpdate: String(document.getElementById('updates-force').checked) });
   updatePublish.disabled = true; updateStatus.textContent = t('Đang tải bản cập nhật…');
   const controller = new AbortController(); updateUpload = controller;
   const timeout = setTimeout(() => controller.abort(), 10 * 60 * 1000);
@@ -71,8 +73,9 @@ document.getElementById('updates-form').addEventListener('submit', async event =
     if (response.status === 401) { logout(t('Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại.')); return; }
     if (!response.ok) throw new Error(errorMessages()[body.error] || t('Không tải được gói cập nhật. Hãy kiểm tra kết nối và giới hạn tải lên của proxy.'));
     releases = releases.filter(r => r.runtime !== runtime).concat(body); renderReleases();
-    updateStatus.textContent = t('Đã phát hành. Client cũ sẽ nhận lệnh cập nhật trong lần giao tiếp tiếp theo với server.');
+    updateStatus.textContent = t('Đã phát hành. Client đủ điều kiện sẽ nhận lệnh cập nhật trong lần giao tiếp tiếp theo với server.');
     document.getElementById('updates-file').value = '';
+    document.getElementById('updates-force').checked = false;
   } catch (e) {
     if (token === state.token && updatesDialog.open) updateStatus.textContent = e.name === 'AbortError' ? t('Đã hủy hoặc hết thời gian cập nhật.') : e.message;
   } finally { clearTimeout(timeout); updateUpload = null; updatePublish.disabled = false; }

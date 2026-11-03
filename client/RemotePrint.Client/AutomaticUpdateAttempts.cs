@@ -7,7 +7,7 @@ internal sealed class AutomaticUpdateAttempts
 
     internal bool TryBegin(ClientUpdateRequest command, DateTime now, bool force = false)
     {
-        var identity = command.ServerUrl + "/" + command.Release.Sha256;
+        var identity = command.ServerUrl + "/" + command.Release.Sha256 + "/" + command.Release.ReleaseId;
         foreach (var expired in _retryAt.Where(entry => entry.Value <= now).Select(entry => entry.Key).ToArray())
             _retryAt.Remove(expired);
         if (!force && _retryAt.ContainsKey(identity)) return false;

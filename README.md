@@ -192,9 +192,16 @@ Windows x64 hoặc ARM64. Chọn đúng kiến trúc, gói ZIP,
 ghi chú rồi bấm **Tải lên và phát hành**. Server tự đọc phiên bản từ
 `build-info.json` trong ZIP, không cần nhập phiên bản. Chỉ quản trị viên đã đăng nhập được
 phát hành; có thể tải đè gói của cùng phiên bản, nhưng không thể hạ phiên bản.
+Tích **Buộc cập nhật dù trùng phiên bản** trước khi phát hành để client/service
+**1.1.9 trở lên** cài lại dù đang chạy cùng số phiên bản. Mỗi lượt phát hành có
+mã riêng; client chỉ cài thành công một lần cho mã đó, kể cả khi server khởi
+động lại. Phát hành lại cùng ZIP với tùy chọn này tạo lệnh cài lại mới.
+Client cũ cần nâng lên 1.1.9 bằng luồng nâng phiên bản thông thường hoặc cài
+thủ công trước khi nhận được lệnh cài lại cùng phiên bản.
 
 Mọi request API của client đều gửi `x-client-version` và `x-client-runtime`.
-Khi phiên bản đã phát hành cho đúng kiến trúc mới hơn client, server gửi lệnh
+Khi phiên bản đã phát hành cho đúng kiến trúc mới hơn client, hoặc trùng phiên
+bản và bật tùy chọn buộc cập nhật, server gửi lệnh
 `x-client-update` ngay trong phản hồi API thông thường (đăng ký, trạng thái,
 heartbeat, danh sách máy hoặc tunnel). Service chuyển lệnh cho ứng dụng qua
 IPC; client quyết định cập nhật theo quyền thực tế của tiến trình:
@@ -208,10 +215,11 @@ IPC; client quyết định cập nhật theo quyền thực tế của tiến t
 Chọn **Cài đặt > Ứng dụng > Cập nhật client…** trong MenuStrip để chủ động kiểm tra bản mới
 trên server. Nếu có bản mới, client hỏi xác nhận trước khi tải/cài và mở lại;
 nếu chưa có, client thông báo rõ. Không có lịch kiểm tra bản mới riêng. Không cập
-nhật khi client bằng hoặc mới hơn bản trên server. Client kiểm tra kích thước,
+nhật khi client mới hơn bản trên server; client cùng phiên bản chỉ cập nhật
+khi có lệnh buộc chưa được cài. Client kiểm tra kích thước,
 SHA-256, kiến trúc, phiên bản và manifest của toàn bộ file trước khi cài.
 Lượt tự cập nhật admin thất bại/hết thời gian/bị hủy chờ ít nhất 15 phút để
-thử lại cùng gói từ cùng server. Lựa chọn cài ngay trong GUI cho phép thử lại
+thử lại cùng lượt phát hành từ cùng server. Lựa chọn cài ngay trong GUI cho phép thử lại
 sớm hơn. Cần giữ ứng dụng chạy trong khay để tự thực thi lệnh; nếu đã thoát
 client, lệnh được xử lý khi mở lại và kết nối service.
 
@@ -235,8 +243,8 @@ báo lỗi; lỗi khôi phục được ghi trong nhật ký cài đặt.
 Build gói phát hành với phiên bản tăng dần, ví dụ:
 
 ```powershell
-.\scripts\publish-client.ps1 -Runtime win-x64 -Version 1.1.8
-.\scripts\publish-client.ps1 -Runtime win-arm64 -Version 1.1.8
+.\scripts\publish-client.ps1 -Runtime win-x64 -Version 1.1.9
+.\scripts\publish-client.ps1 -Runtime win-arm64 -Version 1.1.9
 ```
 
 Tải file `dist/RemotePrint.Client-win-x64.zip` hoặc
@@ -250,8 +258,11 @@ liệu của server. Server chỉ giữ một gói đang phát hành cho mỗi k
 ARM64), tự xóa ZIP cũ sau khi phát hành bản thay thế và dọn ZIP tồn từ phiên
 bản server cũ ngay lúc khởi động. Lượt tải đang diễn ra được hoàn tất trước khi
 xóa file; đường dẫn gói cũ không nhận lượt tải mới. Tải đè cùng phiên bản chỉ
-thay thế gói trên server; client đã chạy đúng số phiên bản đó sẽ không tự cập
-nhật lại. API tải gói là công khai, chỉ chứa file phát
+thay thế gói trên server nếu không bật tùy chọn buộc cập nhật. Sau khi cài,
+client/service giữ biên nhận `client-update-receipt.json` trong thư mục bản
+đã cài và gửi `x-client-update-id` để server ngừng gửi lại cùng lệnh. Biên
+nhận được sao chép cùng gói vào thư mục cài mới, nên cài lỗi và khôi phục về
+bản cũ vẫn cho phép thử lại. API tải gói là công khai, chỉ chứa file phát
 hành, không đóng gói `.env`, khóa hay cấu hình máy vào gói client.
 Reverse proxy cần cho phép upload ZIP tới 256 MiB và thời gian tải phù hợp.
 Client dùng HTTPS của server đã cấu hình (HTTP chỉ được phép với loopback để

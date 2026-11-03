@@ -110,18 +110,21 @@ export function attachClientUpdates(app, { dataDir, adminAuth, audit }) {
       let release;
       try { release = latest(runtime); }
       catch { return next(); } // A damaged release manifest must not interrupt normal client traffic.
-      if (release && validVersion(release.version) && compare(version, release.version) < 0) {
+      const difference = release && validVersion(release.version) ? compare(version, release.version) : null;
+      if (difference !== null && (difference < 0 || (difference === 0 && release.forceUpdate === true &&
+          release.releaseId && req.header('x-client-update-id') !== release.releaseId))) {
         // Omit release notes to keep the response header small even with 4000-character notes.
-        const { version, runtime, size, sha256, downloadPath } = release;
-        res.set('x-client-update', Buffer.from(JSON.stringify({ version, runtime, size, sha256, downloadPath, notes: '' })).toString('base64'));
+        const { version, runtime, size, sha256, downloadPath, forceUpdate = false, releaseId = '' } = release;
+        res.set('x-client-update', Buffer.from(JSON.stringify({ version, runtime, size, sha256, downloadPath, notes: '', forceUpdate, releaseId })).toString('base64'));
       }
     }
     next();
   });
   app.get('/api/admin/updates', adminAuth, (_req, res) => res.set('Cache-Control', 'no-store').json([...runtimes].map(latest).filter(Boolean)));
   app.put('/api/admin/updates/:runtime', adminAuth, async (req, res, next) => {
-    const { runtime } = req.params, { notes = '' } = req.query;
-    if (!runtimes.has(runtime) || typeof notes !== 'string' || notes.length > 4000 || !req.is('application/zip'))
+    const { runtime } = req.params, { notes = '', forceUpdate = 'false' } = req.query;
+    if (!runtimes.has(runtime) || typeof notes !== 'string' || notes.length > 4000 ||
+        !['true', 'false'].includes(forceUpdate) || !req.is('application/zip'))
       return res.status(400).json({ error: 'INVALID_UPDATE_METADATA' });
     if (busy.has(runtime)) return res.status(409).json({ error: 'UPDATE_UPLOAD_BUSY' });
     busy.add(runtime);
@@ -139,7 +142,8 @@ export function attachClientUpdates(app, { dataDir, adminAuth, audit }) {
       const version = await inspectPackage(temp, size, runtime);
       if (previous && compare(version, previous.version) < 0) throw invalid('UPDATE_VERSION_MUST_NOT_DECREASE', 409);
       const sha256 = hash.digest('hex');
-      const release = { version, runtime, notes, size, sha256, publishedAt: new Date().toISOString(), downloadPath: `/api/client/updates/packages/${sha256}.zip` };
+      const release = { version, runtime, notes, size, sha256, forceUpdate: forceUpdate === 'true', releaseId: randomUUID(),
+        publishedAt: new Date().toISOString(), downloadPath: `/api/client/updates/packages/${sha256}.zip` };
       packageName = `${sha256}.zip`;
       pendingPackages.add(packageName);
       // Re-uploading identical bytes only refreshes the release metadata.
@@ -154,7 +158,7 @@ export function attachClientUpdates(app, { dataDir, adminAuth, audit }) {
       await fs.promises.rename(metaTemp, manifestPath(runtime));
       pendingPackages.delete(packageName);
       cleanupOldPackages();
-      audit('client_update_published', { version, runtime, sha256 });
+      audit('client_update_published', { version, runtime, sha256, forceUpdate: release.forceUpdate, releaseId: release.releaseId });
       res.status(previous && compare(version, previous.version) === 0 ? 200 : 201).json(release);
     } catch (e) {
       if (e.status && !res.headersSent && !res.destroyed) res.status(e.status).json({ error: e.message });

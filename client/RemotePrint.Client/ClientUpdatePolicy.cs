@@ -11,7 +11,7 @@ internal sealed class ClientUpdatePolicy
     {
         if (administrator) return ClientUpdateAction.Install;
         if (!guiVisible) return ClientUpdateAction.None;
-        return _notified.Add(command.ServerUrl + "/" + command.Release.Sha256)
+        return _notified.Add(command.ServerUrl + "/" + command.Release.Sha256 + "/" + command.Release.ReleaseId)
             ? ClientUpdateAction.Notify : ClientUpdateAction.None;
     }
 }

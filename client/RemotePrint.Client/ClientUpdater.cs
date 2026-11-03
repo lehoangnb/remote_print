@@ -18,6 +18,8 @@ internal sealed class ClientUpdater : IDisposable
         _http = new HttpClient(handler ?? new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = Timeout.InfiniteTimeSpan };
         _http.DefaultRequestHeaders.Add(ClientUpdateProtocol.VersionHeader, CurrentVersion);
         _http.DefaultRequestHeaders.Add(ClientUpdateProtocol.RuntimeHeader, Runtime);
+        if (ClientUpdateProtocol.AppliedReleaseId is { Length: > 0 } applied)
+            _http.DefaultRequestHeaders.Add(ClientUpdateProtocol.AppliedReleaseHeader, applied);
     }
 
     internal static Uri ServerUri(string server)
@@ -45,7 +47,7 @@ internal sealed class ClientUpdater : IDisposable
             buffer.Write(bytes, 0, count);
         }
         var release = JsonSerializer.Deserialize<ClientRelease>(buffer.ToArray(), ServiceProtocol.Json);
-        return ClientUpdateProtocol.IsNewerRelease(release) ? release : null;
+        return ClientUpdateProtocol.IsApplicableRelease(release) ? release : null;
     }
 
     internal async Task DownloadAsync(string server, ClientRelease release, string archive, IProgress<int>? progress, CancellationToken ct)

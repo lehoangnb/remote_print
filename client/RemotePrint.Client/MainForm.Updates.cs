@@ -50,7 +50,7 @@ public sealed partial class MainForm
         var command = requested ?? _snapshot?.Update;
         var configuredServer = _snapshot?.Settings.ServerUrl ?? (_settingsLoaded ? _serverUrl : new ConfigService().LoadOrCreate().ServerUrl);
         if (command is null || command.ServerUrl != configuredServer ||
-            !ClientUpdateProtocol.IsNewerRelease(command.Release)) return;
+            !ClientUpdateProtocol.IsApplicableRelease(command.Release)) return;
         var administrator = SetupPaths.IsAdministrator;
         var action = manual ? ClientUpdateAction.Notify : _updatePolicy.Decide(command, administrator, Visible && WindowState != FormWindowState.Minimized);
         if (action == ClientUpdateAction.None) return;
@@ -96,6 +96,8 @@ public sealed partial class MainForm
                 progressForm?.ShowVerification();
                 await Task.Run(() => ClientUpdater.ExtractAndVerify(archive, package, release, ct), ct);
                 ct.ThrowIfCancellationRequested();
+                ClientUpdateProtocol.RecordAppliedRelease(package, release);
+                ClientUpdateProtocol.RecordAppliedRelease(Path.Combine(package, "Service"), release);
                 progressForm?.ShowInstallation(requiresElevation: !administrator);
                 var installed = await ElevatedSetup.RunAsync(SetupOperation.InstallService, null, Path.Combine(package, "RemotePrint.Client.exe"));
                 if (string.IsNullOrWhiteSpace(installed) || !File.Exists(installed)) throw new InvalidOperationException(L.T("Không xác định được ứng dụng đã cập nhật để khởi động lại."));

@@ -65,6 +65,8 @@ test('client release upload, same-version replacement, old-package cleanup and r
   }
   assert.equal((await upload(Buffer.from('invalid zip'))).status, 400);
   assert.equal((await upload(packageZip(), 'win-arm64')).status, 400);
+  for (const query of ['&forceUpdate=1', '&forceUpdate=yes', '&forceUpdate=true&forceUpdate=false'])
+    assert.equal((await upload(packageZip(), 'win-x64', headers, query)).status, 400, 'Force option must be an explicit boolean');
   const bytes = packageZip();
   const published = await upload(bytes);
   assert.equal(published.status, 201);
@@ -75,7 +77,7 @@ test('client release upload, same-version replacement, old-package cleanup and r
     const response = await fetch(`${base}/api/client/${route}`, { method, headers: clientHeaders });
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), body);
-    assert.deepEqual(updateCommand(response), { version: release.version, runtime: release.runtime, size: release.size, sha256: release.sha256, downloadPath: release.downloadPath, notes: '' });
+    assert.deepEqual(updateCommand(response), { version: release.version, runtime: release.runtime, size: release.size, sha256: release.sha256, downloadPath: release.downloadPath, notes: '', forceUpdate: false, releaseId: release.releaseId });
     assert.match(response.headers.get('cache-control'), /no-store/);
     assert.ok(response.headers.get('x-client-update').length < 2048);
   }
@@ -106,10 +108,34 @@ test('client release upload, same-version replacement, old-package cleanup and r
   await assert.rejects(fs.stat(path.join(dataDir, 'client-updates', `${release.sha256}.zip`)), { code: 'ENOENT' });
   assert.equal(updateCommand(await fetch(base + '/api/client/status', { headers: clientHeaders })).sha256, revised.sha256);
   assert.equal((await upload(packageZip('1.1.9'))).status, 409);
+  assert.equal((await upload(packageZip('1.1.9'), 'win-x64', headers, '&forceUpdate=true')).status, 409, 'Force never bypasses downgrade protection');
   assert.equal((await upload(packageZip('1.1.9'), 'win-x64', headers, '&version=99.0.0')).status, 409, 'Claiming a newer version cannot bypass the version in the ZIP');
   assert.equal((await upload(Buffer.from('truncated'))).status, 400);
   assert.equal((await (await fetch(base + '/api/client/updates/win-x64')).json()).version, '1.2.0');
-  const nextRelease = await upload(packageZip('1.3.0'), 'win-x64', headers, '&version=9.9.9', 'a'.repeat(4000));
+  const forced = await (await upload(revisedBytes, 'win-x64', headers, '&forceUpdate=true')).json();
+  assert.equal(forced.forceUpdate, true);
+  assert.equal(forced.sha256, revised.sha256);
+  assert.notEqual(forced.releaseId, revised.releaseId);
+  for (const version of ['1.2.0', '1.2.0.0']) {
+    const same = { ...clientHeaders, 'x-client-version': version };
+    assert.equal(updateCommand(await fetch(base + '/api/client/status', { headers: same })).releaseId, forced.releaseId,
+      'Forced publication reaches the same version, including normalized four-part versions');
+    const acknowledged = { ...same, 'x-client-update-id': forced.releaseId };
+    assert.equal((await fetch(base + '/api/client/status', { headers: acknowledged })).headers.get('x-client-update'), null,
+      'The installed publication is not offered again');
+    assert.equal(updateCommand(await fetch(base + '/api/client/status', { headers: { ...same, 'x-client-update-id': revised.releaseId } })).releaseId,
+      forced.releaseId, 'A previous receipt does not suppress a new publication');
+  }
+  assert.equal((await fetch(base + '/api/client/status', { headers: { ...clientHeaders, 'x-client-version': '1.2.1' } })).headers.get('x-client-update'), null,
+    'Forced publication never downgrades a newer client');
+  assert.equal(updateCommand(await fetch(base + '/api/client/status', { headers: { ...clientHeaders, 'x-client-update-id': forced.releaseId } })).releaseId,
+    forced.releaseId, 'Older versions still upgrade even if they present a receipt');
+  const repeated = await (await upload(revisedBytes, 'win-x64', headers, '&forceUpdate=true')).json();
+  assert.notEqual(repeated.releaseId, forced.releaseId, 'Republishing identical bytes creates a new force command');
+  const disabled = await (await upload(revisedBytes)).json();
+  assert.equal(disabled.forceUpdate, false, 'A normal publication clears the force option');
+  assert.equal((await fetch(base + '/api/client/status', { headers: { ...clientHeaders, 'x-client-version': '1.2.0' } })).headers.get('x-client-update'), null);
+  const nextRelease = await upload(packageZip('1.3.0'), 'win-x64', headers, '&version=9.9.9&forceUpdate=true', 'a'.repeat(4000));
   assert.equal(nextRelease.status, 201);
   const newest = await nextRelease.json();
   assert.equal(newest.version, '1.3.0', 'Request version cannot replace the ZIP version');
@@ -122,6 +148,9 @@ test('client release upload, same-version replacement, old-package cleanup and r
   const oldOrphan = path.join(dataDir, 'client-updates', `${'a'.repeat(64)}.zip`);
   await fs.writeFile(oldOrphan, 'legacy package');
   base = await start();
+  assert.equal(updateCommand(await fetch(base + '/api/client/status', { headers: { ...clientHeaders, 'x-client-version': '1.3.0' } })).releaseId,
+    newest.releaseId, 'Forced same-version command persists after server restart');
+  assert.equal((await fetch(base + '/api/client/status', { headers: { ...clientHeaders, 'x-client-version': '1.3.0', 'x-client-update-id': newest.releaseId } })).headers.get('x-client-update'), null);
   await assert.rejects(fs.stat(oldOrphan), { code: 'ENOENT' }, 'Legacy unreferenced packages are removed on server startup');
   assert.equal(updateCommand(await fetch(base + '/api/client/status', { headers: clientHeaders })).version, '1.3.0', 'Commands use the persisted newest release after server restart');
   const arm = await fetch(base + '/api/client/status', { headers: { ...clientHeaders, 'x-client-runtime': 'win-arm64' } });

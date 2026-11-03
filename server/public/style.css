@@ -251,6 +251,8 @@ td { padding: 13px 14px; border-bottom: 1px solid #e9ebef; vertical-align: top; 
 .update-fields { display: grid; gap: 6px; }
 .update-fields label { margin-top: 4px; font-weight: 600; }
 .update-fields textarea { width: 100%; resize: vertical; }
+.update-fields .update-force { display: flex; align-items: center; gap: 8px; }
+.update-force input { width: auto; margin: 0; }
 #updates-current { white-space: pre-line; color: var(--muted); font-size: 12px; }
 #updates-dialog .pair-hint { margin-top: 6px; }
 
