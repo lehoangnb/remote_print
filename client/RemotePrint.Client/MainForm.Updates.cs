@@ -79,36 +79,42 @@ public sealed partial class MainForm
             Directory.CreateDirectory(staging);
             var archive = Path.Combine(staging, "package.zip");
             var package = Path.Combine(staging, "package");
-            using var progressForm = new UpdateProgressForm();
-            progressForm.CancelRequested += (_, _) => _updateCancellation?.Cancel();
-            progressForm.Show(this);
+            // Showing an owned dialog can also reveal its hidden owner. Keep automatic
+            // updates entirely in the background when the manager is not open.
+            using var progressForm = Visible && WindowState != FormWindowState.Minimized ? new UpdateProgressForm() : null;
+            if (progressForm is not null)
+            {
+                progressForm.CancelRequested += (_, _) => _updateCancellation?.Cancel();
+                progressForm.Show(this);
+            }
             Enabled = false;
             SetServiceItems(false);
             try
             {
-                await updater.DownloadAsync(command.ServerUrl, release, archive, new Progress<int>(progressForm.ReportProgress), ct);
-                progressForm.ShowVerification();
+                await updater.DownloadAsync(command.ServerUrl, release, archive,
+                    progressForm is null ? null : new Progress<int>(progressForm.ReportProgress), ct);
+                progressForm?.ShowVerification();
                 await Task.Run(() => ClientUpdater.ExtractAndVerify(archive, package, release, ct), ct);
                 ct.ThrowIfCancellationRequested();
-                progressForm.ShowInstallation(requiresElevation: !administrator);
+                progressForm?.ShowInstallation(requiresElevation: !administrator);
                 var installed = await ElevatedSetup.RunAsync(SetupOperation.InstallService, null, Path.Combine(package, "RemotePrint.Client.exe"));
                 if (string.IsNullOrWhiteSpace(installed) || !File.Exists(installed)) throw new InvalidOperationException(L.T("Không xác định được ứng dụng đã cập nhật để khởi động lại."));
                 var restart = new ProcessStartInfo(installed) { UseShellExecute = false };
-                if (!Visible) restart.ArgumentList.Add("--background");
+                if (!Visible || WindowState == FormWindowState.Minimized) restart.ArgumentList.Add("--background");
                 restart.ArgumentList.Add("--wait-for-exit"); restart.ArgumentList.Add(Environment.ProcessId.ToString());
                 using var restarted = Process.Start(restart) ?? throw new InvalidOperationException(L.T("Không xác định được ứng dụng đã cập nhật để khởi động lại."));
                 StopAgent();
                 Application.Exit();
             }
-            finally { Enabled = true; progressForm.Close(); SetServiceItems(true); }
+            finally { Enabled = true; progressForm?.Close(); SetServiceItems(true); }
         }
         catch (OperationCanceledException)
         {
-            if (!IsDisposed && Visible) MessageBox.Show(this, L.T("Đã hủy hoặc hết thời gian cập nhật."), L.T("Cập nhật ứng dụng"));
+            if (!IsDisposed && Visible && WindowState != FormWindowState.Minimized) MessageBox.Show(this, L.T("Đã hủy hoặc hết thời gian cập nhật."), L.T("Cập nhật ứng dụng"));
         }
         catch (Exception ex)
         {
-            if (!IsDisposed && Visible) ShowError(ex);
+            if (!IsDisposed && Visible && WindowState != FormWindowState.Minimized) ShowError(ex);
             else Debug.WriteLine(ex.Message);
         }
         finally
