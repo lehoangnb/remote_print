@@ -384,12 +384,21 @@ public sealed class ClientEngine : IDisposable, INativeRelayHost
     private void Publish()
     {
         var update = Volatile.Read(ref _pendingUpdate);
+        var installedPrinters = PrintRelay.InstalledPrinters;
+        List<string>? presentInstalledPrinterIds = null;
+        try
+        {
+            var windowsPrinters = PrinterService.GetServicePrinters(includeRemoteQueues: true).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            presentInstalledPrinterIds = installedPrinters.Where(printer => windowsPrinters.Contains(printer.Name)).Select(printer => printer.Id).ToList();
+        }
+        catch (System.ComponentModel.Win32Exception) { /* Allow a retry when Windows cannot enumerate printers. */ }
         var snapshot = new ServiceSnapshot
         {
             Update = update?.ServerUrl == _config.ServerUrl ? update : null,
             NativePrinting = true,
             PrinterRemoval = true,
-            InstalledPrinters = PrintRelay.InstalledPrinters,
+            InstalledPrinters = installedPrinters,
+            PresentInstalledPrinterIds = presentInstalledPrinterIds,
             TestPrinting = true,
             TestFileAccess = true,
             TestPdfPrinting = true,

@@ -2,6 +2,8 @@ using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Security.Principal;
+using System.Security.Cryptography;
+using System.Text;
 using System.Windows.Forms;
 
 namespace RemotePrint.Client;
@@ -242,6 +244,7 @@ public sealed partial class MainForm : Form
         _testPrinterUninstallItem.Enabled = snapshot.TestPrinterInstalled && snapshot.TestFileMaintenance && !_installingTestPrinter;
         _clearTestFilesItem.Enabled = snapshot.TestFileMaintenance && !_clearingTestFiles;
         _testPrinterInstallItem.Enabled = snapshot.TestPrinting && !_installingTestPrinter;
+        _testPrinterInstallItem.Visible = !snapshot.TestPrinterInstalled;
         ServiceStatusText.Text = L.T("Đang chạy");
         ServiceStatusText.SetTip(snapshot.NativePrinting ? null : L.T("Cần cập nhật dịch vụ để dùng relay driver/RAW."));
         StatusText.Text = L.T(snapshot.Connection);
@@ -349,9 +352,17 @@ public sealed partial class MainForm : Form
 
     private void UpdateConnectButton()
     {
-        ConnectPrinterButton.Enabled = !_connectingRemotePrinter && _snapshot?.NativePrinting == true && _snapshot.TunnelStatus == "Đã kết nối"
+        var canConnect = !_connectingRemotePrinter && _snapshot?.NativePrinting == true && _snapshot.TunnelStatus == "Đã kết nối"
             && PeersGrid.SelectedItem is PeerClient { TunnelAddress: not null } && RemotePrinters.SelectedItem is string;
-        PrintTestButton.Enabled = ConnectPrinterButton.Enabled && _snapshot?.TestPrinting == true && _snapshot.TestPdfPrinting
+        var installed = false;
+        if (_snapshot?.PresentInstalledPrinterIds is { } present && PeersGrid.SelectedItem is PeerClient peer && RemotePrinters.SelectedItem is string printer)
+        {
+            var id = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(peer.Id + ":" + printer)))[..16];
+            installed = present.Contains(id, StringComparer.OrdinalIgnoreCase);
+        }
+        ConnectPrinterButton.Visible = !installed;
+        ConnectPrinterButton.Enabled = canConnect && !installed;
+        PrintTestButton.Enabled = canConnect && _snapshot?.TestPrinting == true && _snapshot.TestPdfPrinting
             && string.Equals(RemotePrinters.SelectedItem as string, TestPrinter.Name, StringComparison.OrdinalIgnoreCase);
         PrintTestButton.SetTip(L.T("Kết nối Remote Print Test trước, rồi gửi trang thử và xem nhật ký trên máy nhận."));
     }
@@ -382,13 +393,17 @@ public sealed partial class MainForm : Form
     {
         _installingTestPrinter = true;
         _testPrinterInstallItem.Enabled = false;
+        using var progress = new UpdateProgressForm();
+        progress.ShowPrinterInstallation();
         try
         {
+            progress.Show(this);
             ApplySnapshot(await _service.CallAsync(new("install-test-printer")));
+            progress.Close();
             MessageBox.Show(this, L.T("Đã cài Remote Print Test. Tích chọn máy in này trong Máy in chia sẻ. Trên client khác cùng Room, kết nối máy in rồi bấm In thử. Xem Hoạt động gần đây ở máy nhận để xác nhận."),
                 "Remote Print", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
-        catch (Exception ex) { ShowError(ex); }
+        catch (Exception ex) { progress.Close(); ShowError(ex); }
         finally { _installingTestPrinter = false; _testPrinterInstallItem.Enabled = _snapshot?.TestPrinting == true; }
     }
 
@@ -413,12 +428,16 @@ public sealed partial class MainForm : Form
             RemotePrinters.SelectedItem is not string printer || !peer.NativePrinting) return;
         _connectingRemotePrinter = true;
         UpdateConnectButton();
+        using var progress = new UpdateProgressForm();
+        progress.ShowPrinterInstallation();
         try
         {
+            progress.Show(this);
             ApplySnapshot(await _service.CallAsync(new("connect-printer", PeerId: peer.Id, Printer: printer)));
+            progress.Close();
             MessageBox.Show(this, string.Format(L.T("Windows đã kết nối máy in {0}."), printer), "Remote Print", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
-        catch (Exception ex) { MessageBox.Show(this, L.Message(ex.Message), L.T("Không kết nối được máy in"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        catch (Exception ex) { progress.Close(); MessageBox.Show(this, L.Message(ex.Message), L.T("Không kết nối được máy in"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
         finally { _connectingRemotePrinter = false; UpdateConnectButton(); }
     }
 

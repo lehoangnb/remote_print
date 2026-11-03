@@ -180,6 +180,16 @@ internal static partial class Program
         manager.PerformLayout();
         Require(manager.ConnectPrinterButton.Enabled && manager.RemotePrinters.Items.Count == 2, "Native printers are selectable without a Windows SMB share");
         var selectedPeer = snapshot.Peers[0];
+        var installedId = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(selectedPeer.Id + ":Office Printer")))[..16];
+        snapshot.PresentInstalledPrinterIds = [installedId]; Apply(snapshot);
+        Require(!manager.ConnectPrinterButton.Visible, "Connection button is hidden for the installed Windows queue");
+        manager.RemotePrinters.SelectedIndex = 1;
+        Require(manager.ConnectPrinterButton.Visible && manager.ConnectPrinterButton.Enabled, "Another printer can still be installed");
+        manager.RemotePrinters.SelectedIndex = 0;
+        snapshot.PresentInstalledPrinterIds = []; Apply(snapshot);
+        Require(manager.ConnectPrinterButton.Visible && manager.ConnectPrinterButton.Enabled, "Connection returns when the Windows queue is missing");
+        snapshot.PresentInstalledPrinterIds = null; Apply(snapshot);
+        Require(manager.ConnectPrinterButton.Visible, "Older services keep the connection action available");
         var refreshedPeer = new PeerClient { Id = selectedPeer.Id, Name = selectedPeer.Name,
             TunnelAddress = selectedPeer.TunnelAddress, TunnelPath = selectedPeer.TunnelPath,
             NativePrinting = true, Printers = selectedPeer.Printers, WindowsPrinterShares = selectedPeer.WindowsPrinterShares };
@@ -201,8 +211,11 @@ internal static partial class Program
         Require(!manager.OpenTestFilesButton.Visible && !manager.OpenTestFilesButton.Enabled, "Opening test files is hidden until a virtual printer is installed");
         snapshot.TestPrinterInstalled = true; snapshot.TestFileMaintenance = true; Apply(snapshot);
         Require(manager.OpenTestFilesButton.Visible && manager.OpenTestFilesButton.Enabled, "Installing the virtual printer reveals the received file action");
+        var installTestItem = (ToolStripMenuItem)typeof(MainForm).GetField("_testPrinterInstallItem", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(manager)!;
+        Require(!installTestItem.Available, "Test printer installation is hidden while installed");
         snapshot.TestPrinterInstalled = false; Apply(snapshot);
         Require(!manager.OpenTestFilesButton.Visible, "Uninstalling the virtual printer hides the file action again");
+        Require(installTestItem.Available, "Test printer installation returns after removal");
         snapshot.TestPrinterInstalled = true; Apply(snapshot);
         // Replace the row so the UI observes a changed printer list.
         snapshot.Peers = [new PeerClient { Id = refreshedPeer.Id, Name = refreshedPeer.Name, TunnelAddress = refreshedPeer.TunnelAddress,

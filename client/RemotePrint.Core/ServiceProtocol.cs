@@ -18,6 +18,8 @@ public sealed class ServiceSnapshot
     public bool NativePrinting { get; set; }
     public bool PrinterRemoval { get; set; }
     public List<InstalledPrinter> InstalledPrinters { get; set; } = [];
+    // Null means the service cannot report Windows queue presence (including older services).
+    public List<string>? PresentInstalledPrinterIds { get; set; }
     public bool TestPrinting { get; set; }
     public bool TestFileAccess { get; set; }
     public bool TestPdfPrinting { get; set; }

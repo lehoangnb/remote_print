@@ -1,5 +1,7 @@
 {
   "vi": {
+    "Cài đặt máy in": "Cài đặt máy in",
+    "Đang cài đặt máy in, vui lòng chờ…": "Đang cài đặt máy in, vui lòng chờ…",
     "Client đang chạy với quyền khác. Hãy mở từ khay hệ thống hoặc thoát client rồi mở lại.": "Client đang chạy với quyền khác. Hãy mở từ khay hệ thống hoặc thoát client rồi mở lại.",
     "Luôn chạy với quyền quản trị": "Luôn chạy với quyền quản trị",
     "Áp dụng cả khi khởi động cùng Windows.": "Áp dụng cả khi khởi động cùng Windows.",
@@ -412,6 +414,8 @@
     "Không khôi phục được dịch vụ cũ: ": "Không khôi phục được dịch vụ cũ: "
   },
   "en": {
+    "Cài đặt máy in": "Installing printer",
+    "Đang cài đặt máy in, vui lòng chờ…": "Installing printer, please wait…",
     "Client đang chạy với quyền khác. Hãy mở từ khay hệ thống hoặc thoát client rồi mở lại.": "The client is running with different privileges. Open it from the system tray, or exit the client and reopen it.",
     "Luôn chạy với quyền quản trị": "Always run as administrator",
     "Áp dụng cả khi khởi động cùng Windows.": "Also applies when starting with Windows.",

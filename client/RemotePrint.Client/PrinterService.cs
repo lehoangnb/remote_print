@@ -137,7 +137,7 @@ public static class PrinterService
         !string.IsNullOrWhiteSpace(share) && share.Length <= 200 && share == share.Trim()
         && share is not ("." or "..") && !share.Any(c => c is '/' or '\\' or ':' or '*' or '?' or '"' or '<' or '>' or '|' || char.IsControl(c));
 
-    public static IReadOnlyList<string> GetServicePrinters()
+    public static IReadOnlyList<string> GetServicePrinters(bool includeRemoteQueues = false)
     {
         const uint flags = PrinterEnumLocal;
         var ok = EnumPrinters(flags, null, 2, IntPtr.Zero, 0, out var bytes, out _);
@@ -162,7 +162,7 @@ public static class PrinterService
                 if (string.IsNullOrWhiteSpace(name) || name.Equals("Remote Print", StringComparison.OrdinalIgnoreCase)) continue;
                 // Drivers requesting Save As / fax UI cannot be used in Session 0.
                 if (port is null || port.Contains("PORTPROMPT", StringComparison.OrdinalIgnoreCase)
-                    || port.Contains("SHRFAX", StringComparison.OrdinalIgnoreCase) || port.StartsWith("RP_", StringComparison.OrdinalIgnoreCase)) continue;
+                    || port.Contains("SHRFAX", StringComparison.OrdinalIgnoreCase) || (!includeRemoteQueues && port.StartsWith("RP_", StringComparison.OrdinalIgnoreCase))) continue;
                 names.Add(name);
             }
             return names.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(name => name).ToList();

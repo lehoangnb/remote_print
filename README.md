@@ -235,8 +235,8 @@ báo lỗi; lỗi khôi phục được ghi trong nhật ký cài đặt.
 Build gói phát hành với phiên bản tăng dần, ví dụ:
 
 ```powershell
-.\scripts\publish-client.ps1 -Runtime win-x64 -Version 1.1.7
-.\scripts\publish-client.ps1 -Runtime win-arm64 -Version 1.1.7
+.\scripts\publish-client.ps1 -Runtime win-x64 -Version 1.1.8
+.\scripts\publish-client.ps1 -Runtime win-arm64 -Version 1.1.8
 ```
 
 Tải file `dist/RemotePrint.Client-win-x64.zip` hoặc
