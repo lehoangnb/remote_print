@@ -74,6 +74,33 @@ internal static partial class Program
                     }
                     if (form is UpdateProgressForm progress)
                     {
+                        using (var owner = new Form { StartPosition = FormStartPosition.Manual, Bounds = new Rectangle(100, 100, 800, 600), ShowInTaskbar = false })
+                        using (var centered = new UpdateProgressForm())
+                        {
+                            owner.Show();
+                            centered.Show(owner);
+                            Application.DoEvents();
+                            var working = Screen.FromControl(owner).WorkingArea;
+                            var expectedX = Math.Clamp(owner.Left + (owner.Width - centered.Width) / 2, working.Left, Math.Max(working.Left, working.Right - centered.Width));
+                            var expectedY = Math.Clamp(owner.Top + (owner.Height - centered.Height) / 2, working.Top, Math.Max(working.Top, working.Bottom - centered.Height));
+                            Require(centered.Location == new Point(expectedX, expectedY), "Progress window is centered on its owner within the screen");
+                            centered.ShowPrinterInstallation();
+                            Require(!Descendants(centered).OfType<Button>().Single().Visible && Descendants(centered).OfType<ProgressBar>().Single().Style == ProgressBarStyle.Marquee,
+                                "Printer installation shows an indeterminate progress indicator without cancellation");
+                            foreach (var (show, title, status) in new (Action, string, string)[] {
+                                (centered.ShowPrinterRemoval, "Xóa máy in", "Đang xóa máy in, vui lòng chờ…"),
+                                (centered.ShowServiceInstallation, "Cài đặt dịch vụ", "Đang cài đặt dịch vụ; hãy xác nhận yêu cầu quyền quản trị nếu có…"),
+                                (centered.ShowServiceRemoval, "Gỡ cài đặt dịch vụ", "Đang gỡ dịch vụ; hãy xác nhận yêu cầu quyền quản trị nếu có…"),
+                                (centered.ShowClientRemoval, "Gỡ cài đặt ứng dụng", "Đang gỡ ứng dụng; hãy xác nhận yêu cầu quyền quản trị nếu có…") })
+                            {
+                                show();
+                                var label = Descendants(centered).OfType<Label>().Single();
+                                Require(centered.Text == L.T(title) && label.Text == L.T(status) && (language != "en" || L.T(status) != status),
+                                    $"{language} operation progress displays the translated status: {title}");
+                                Require(TextRenderer.MeasureText(label.Text, label.Font, new Size(label.Width, int.MaxValue), TextFormatFlags.WordBreak).Height <= label.Height,
+                                    $"{language} operation status fits: {title}");
+                            }
+                        }
                         progress.StartPosition = FormStartPosition.Manual;
                         progress.Location = new Point(-2400, -2400);
                         progress.ShowInTaskbar = false;

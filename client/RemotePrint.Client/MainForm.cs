@@ -375,13 +375,16 @@ public sealed partial class MainForm : Form
         _installingTestPrinter = true;
         _testPrinterUninstallItem.Enabled = false;
         _testPrinterInstallItem.Enabled = false;
+        using var progress = new UpdateProgressForm();
+        progress.ShowPrinterRemoval();
         try
         {
+            progress.Show(this);
             var snapshot = await _service.CallAsync(new("uninstall-test-printer"));
             if (_printerDraft.Remove(TestPrinter.Name)) _printerDraftVersion++;
             ApplySnapshot(snapshot);
         }
-        catch (Exception ex) { ShowError(ex); }
+        catch (Exception ex) { progress.Close(); ShowError(ex); }
         finally
         {
             _installingTestPrinter = false;
@@ -537,15 +540,19 @@ public sealed partial class MainForm : Form
         _serviceSetupBusy = true;
         SetServiceItems(enabled: false);
         string? migration = null;
+        using var progress = new UpdateProgressForm();
+        progress.ShowServiceInstallation();
         try
         {
+            progress.Show(this);
             migration = new ConfigService().PrepareServiceMigration();
             await ElevatedSetup.RunAsync(SetupOperation.InstallService, migration);
             _settingsLoaded = false;
         }
-        catch (Exception ex) { ShowError(ex); }
+        catch (Exception ex) { progress.Close(); ShowError(ex); }
         finally
         {
+            progress.Close();
             try { if (migration is not null) File.Delete(migration); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Debug.WriteLine(ex.Message); }
             _serviceSetupBusy = false;
@@ -558,17 +565,23 @@ public sealed partial class MainForm : Form
 
     private async void UninstallService_Click(object? sender, EventArgs e)
     {
+        if (_serviceSetupBusy || _updateBusy) return;
         if (MessageBox.Show(this,
                 L.T("Gỡ Windows Service Remote Print và mục khởi động cùng Windows của máy này?\n\n") +
                 L.T("Cấu hình được giữ lại. Máy khác không in tới máy này ") +
                 L.T("cho tới khi cài lại dịch vụ."),
                 L.T("Gỡ cài đặt dịch vụ"), MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
             return;
+        _serviceSetupBusy = true;
         SetServiceItems(enabled: false);
         var removed = false;
+        using var progress = new UpdateProgressForm();
+        progress.ShowServiceRemoval();
         try
         {
+            progress.Show(this);
             await ElevatedSetup.RunAsync(SetupOperation.UninstallService, migrationFile: null);
+            progress.Close();
             _settingsLoaded = false;
             removed = true;
             _servicePrompted = true; // An intentional removal should not open the first-run installer dialog.
@@ -576,9 +589,11 @@ public sealed partial class MainForm : Form
                 L.T("Đã gỡ Windows Service. Dữ liệu cấu hình vẫn nằm trong ProgramData\\RemotePrint."),
                 L.T("Gỡ cài đặt dịch vụ"), MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
-        catch (Exception ex) { ShowError(ex); }
+        catch (Exception ex) { progress.Close(); ShowError(ex); }
         finally
         {
+            progress.Close();
+            _serviceSetupBusy = false;
             SetServiceItems(enabled: true);
             // A second click would only report a removal that already happened;
             // ApplySnapshot re-enables the item after a reinstall.
@@ -591,14 +606,18 @@ public sealed partial class MainForm : Form
     {
         if (!ClientUninstaller.Confirm(this)) return;
         _clientUninstallItem.Enabled = false;
+        using var progress = new UpdateProgressForm();
+        progress.ShowClientRemoval();
         try
         {
+            progress.Show(this);
             await ElevatedSetup.RunAsync(SetupOperation.UninstallClient, migrationFile: null);
+            progress.Close();
             ClientUninstaller.ShowSuccess(this);
             StopAgent();
             Application.Exit();
         }
-        catch (Exception ex) { ShowError(ex); }
+        catch (Exception ex) { progress.Close(); ShowError(ex); }
         finally { if (!IsDisposed) _clientUninstallItem.Enabled = true; }
     }
 

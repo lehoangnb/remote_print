@@ -19,8 +19,11 @@ public sealed partial class InstalledPrintersForm : Form
             if (MessageBox.Show(this, string.Format(L.T("Xóa máy in {0} trên máy này? Driver dùng chung và file đã nhận được giữ lại."), printer.Name),
                 Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
             _busy = true; UpdateButtons();
+            using var progress = new UpdateProgressForm();
+            progress.ShowPrinterRemoval();
             try
             {
+                progress.Show(this);
                 var snapshot = await _service.CallAsync(new("remove-printer", QueueId: printer.Id));
                 if (!IsDisposed) ApplySnapshot(snapshot);
             }

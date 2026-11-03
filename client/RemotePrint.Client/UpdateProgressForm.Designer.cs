@@ -27,29 +27,56 @@ partial class UpdateProgressForm
         progressBar = new ProgressBar();
         statusLabel = new Label();
         cancelButton = new Button();
+        layoutPanel = new TableLayoutPanel();
+        buttonPanel = new FlowLayoutPanel();
+        layoutPanel.SuspendLayout();
+        buttonPanel.SuspendLayout();
         SuspendLayout();
         //
         // progressBar
         //
         progressBar.Name = "progressBar";
-        progressBar.Dock = DockStyle.Top;
-        progressBar.Height = 22;
+        progressBar.Dock = DockStyle.Fill;
+        progressBar.Margin = new Padding(0, 4, 0, 8);
         //
         // statusLabel
         //
         statusLabel.Name = "statusLabel";
         statusLabel.Text = "Đang tải bản cập nhật…";
-        statusLabel.Dock = DockStyle.Top;
-        statusLabel.Height = 36;
-        statusLabel.Padding = new Padding(12, 8, 0, 0);
+        statusLabel.Dock = DockStyle.Fill;
+        statusLabel.TextAlign = ContentAlignment.MiddleLeft;
+        statusLabel.Margin = new Padding(0);
         //
         // cancelButton
         //
         cancelButton.Name = "cancelButton";
         cancelButton.Text = "Hủy";
-        cancelButton.Dock = DockStyle.Bottom;
-        cancelButton.Height = 30;
+        cancelButton.Size = new Size(96, 32);
+        cancelButton.Margin = new Padding(0);
         cancelButton.UseVisualStyleBackColor = true;
+        //
+        // layoutPanel
+        //
+        layoutPanel.Name = "layoutPanel";
+        layoutPanel.Dock = DockStyle.Fill;
+        layoutPanel.Padding = new Padding(20, 12, 20, 14);
+        layoutPanel.ColumnCount = 1;
+        layoutPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+        layoutPanel.RowCount = 3;
+        layoutPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+        layoutPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 32F));
+        layoutPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 32F));
+        layoutPanel.Controls.Add(statusLabel, 0, 0);
+        layoutPanel.Controls.Add(progressBar, 0, 1);
+        layoutPanel.Controls.Add(buttonPanel, 0, 2);
+        //
+        // buttonPanel
+        //
+        buttonPanel.Name = "buttonPanel";
+        buttonPanel.Dock = DockStyle.Fill;
+        buttonPanel.Margin = new Padding(0);
+        buttonPanel.FlowDirection = FlowDirection.RightToLeft;
+        buttonPanel.Controls.Add(cancelButton);
         //
         // UpdateProgressForm
         //
@@ -57,7 +84,7 @@ partial class UpdateProgressForm
         AutoScaleMode = AutoScaleMode.Font;
         Font = new Font("Segoe UI", 9F);
         BackColor = SystemColors.Control;
-        ClientSize = new Size(414, 121);
+        ClientSize = new Size(440, 150);
         Name = "UpdateProgressForm";
         Text = "Cập nhật ứng dụng";
         FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -65,9 +92,9 @@ partial class UpdateProgressForm
         MinimizeBox = false;
         ControlBox = false;
         StartPosition = FormStartPosition.CenterParent;
-        this.Controls.Add(progressBar);
-        this.Controls.Add(statusLabel);
-        this.Controls.Add(cancelButton);
+        Controls.Add(layoutPanel);
+        buttonPanel.ResumeLayout(false);
+        layoutPanel.ResumeLayout(false);
         ResumeLayout(false);
         PerformLayout();
     }
@@ -77,4 +104,6 @@ partial class UpdateProgressForm
     private ProgressBar progressBar;
     private Label statusLabel;
     private Button cancelButton;
+    private TableLayoutPanel layoutPanel;
+    private FlowLayoutPanel buttonPanel;
 }

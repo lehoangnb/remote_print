@@ -1,5 +1,9 @@
 {
   "vi": {
+    "Đang xóa máy in, vui lòng chờ…": "Đang xóa máy in, vui lòng chờ…",
+    "Đang cài đặt dịch vụ; hãy xác nhận yêu cầu quyền quản trị nếu có…": "Đang cài đặt dịch vụ; hãy xác nhận yêu cầu quyền quản trị nếu có…",
+    "Đang gỡ dịch vụ; hãy xác nhận yêu cầu quyền quản trị nếu có…": "Đang gỡ dịch vụ; hãy xác nhận yêu cầu quyền quản trị nếu có…",
+    "Đang gỡ ứng dụng; hãy xác nhận yêu cầu quyền quản trị nếu có…": "Đang gỡ ứng dụng; hãy xác nhận yêu cầu quyền quản trị nếu có…",
     "Cài đặt máy in": "Cài đặt máy in",
     "Đang cài đặt máy in, vui lòng chờ…": "Đang cài đặt máy in, vui lòng chờ…",
     "Client đang chạy với quyền khác. Hãy mở từ khay hệ thống hoặc thoát client rồi mở lại.": "Client đang chạy với quyền khác. Hãy mở từ khay hệ thống hoặc thoát client rồi mở lại.",
@@ -414,6 +418,12 @@
     "Không khôi phục được dịch vụ cũ: ": "Không khôi phục được dịch vụ cũ: "
   },
   "en": {
+    "Cài đặt dịch vụ": "Install service",
+    "Gỡ cài đặt ứng dụng": "Uninstall application",
+    "Đang xóa máy in, vui lòng chờ…": "Removing printer, please wait…",
+    "Đang cài đặt dịch vụ; hãy xác nhận yêu cầu quyền quản trị nếu có…": "Installing service; approve the administrator prompt if shown…",
+    "Đang gỡ dịch vụ; hãy xác nhận yêu cầu quyền quản trị nếu có…": "Removing service; approve the administrator prompt if shown…",
+    "Đang gỡ ứng dụng; hãy xác nhận yêu cầu quyền quản trị nếu có…": "Removing application; approve the administrator prompt if shown…",
     "Cài đặt máy in": "Installing printer",
     "Đang cài đặt máy in, vui lòng chờ…": "Installing printer, please wait…",
     "Client đang chạy với quyền khác. Hãy mở từ khay hệ thống hoặc thoát client rồi mở lại.": "The client is running with different privileges. Open it from the system tray, or exit the client and reopen it.",
