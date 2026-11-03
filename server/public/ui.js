@@ -133,11 +133,11 @@ function createClientRow(client) {
   const row = document.createElement('tr');
   row.dataset.clientId = client.id;
   // Only static markup is interpolated. Server-provided text is assigned via textContent.
-  row.innerHTML = '<td data-label="Máy tính"><div class="machine-name"><span class="machine-avatar"><svg class="icon" aria-hidden="true"><use href="/icons.svg#computer"/></svg></span><strong class="name"></strong></div><small class="machine-id"></small></td>' +
+  row.innerHTML = '<td data-label="Máy tính"><div class="machine-name"><span class="machine-avatar"><svg class="icon" aria-hidden="true"><use href="/icons.svg#computer"/></svg></span><strong class="name"></strong></div><small class="machine-id"></small><small class="machine-version"></small></td>' +
     '<td data-label="Trạng thái"><span class="pill"></span><span class="client-connection"></span><small class="last-seen"></small><small class="machine-tunnel"></small></td>' +
     '<td data-label="Máy in chia sẻ" class="printers-cell"></td>' +
     '<td data-label="Room &amp; quyền truy cập"><div class="client-access"><div class="access-meta"><span class="access-room">Room: <strong class="current-room"></strong></span><span class="access-draft" hidden>Chưa lưu</span></div><div class="access-edit"><div class="room-select" role="group"></div><button type="button" class="button button-primary button-small approve"></button><button type="button" class="button button-danger button-small reject">Từ chối</button></div><p class="row-feedback error" role="alert" hidden></p></div></td>';
-  const fields = Object.fromEntries(['name', 'machine-id', 'pill', 'client-connection', 'last-seen', 'machine-tunnel', 'printers-cell', 'approve', 'reject', 'row-feedback', 'access-draft', 'current-room']
+  const fields = Object.fromEntries(['name', 'machine-id', 'machine-version', 'pill', 'client-connection', 'last-seen', 'machine-tunnel', 'printers-cell', 'approve', 'reject', 'row-feedback', 'access-draft', 'current-room']
     .map(className => [className, row.querySelector('.' + className)]));
   fields.room = row.querySelector('.room-select');
   fields.room.dataset.room = client.id;
@@ -219,6 +219,7 @@ export function renderClients(state) {
     text(f.name, client.name);
     text(f['machine-id'], 'ID · ' + client.id.slice(0, 8));
     f['machine-id'].title = client.id;
+    text(f['machine-version'], t('Phiên bản: ') + (client.clientVersion || t('Chưa rõ')));
     statusBadge(f.pill, client.status, clientLabels);
     text(f['current-room'], clientRooms(client).join(", ") || t("Chưa gán"));
     f['current-room'].title = clientRooms(client).join(", ") || t("Chưa gán Room");

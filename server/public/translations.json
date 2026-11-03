@@ -1,5 +1,7 @@
 {
   "vi": {
+    "Phiên bản: ": "Phiên bản: ",
+    "Chưa rõ": "Chưa rõ",
     "Buộc cập nhật dù trùng phiên bản": "Buộc cập nhật dù trùng phiên bản",
     "Khi bật, client hỗ trợ sẽ cài lại một lần cho mỗi lượt phát hành. Không hạ phiên bản.": "Khi bật, client hỗ trợ sẽ cài lại một lần cho mỗi lượt phát hành. Không hạ phiên bản.",
     "Đã phát hành. Client đủ điều kiện sẽ nhận lệnh cập nhật trong lần giao tiếp tiếp theo với server.": "Đã phát hành. Client đủ điều kiện sẽ nhận lệnh cập nhật trong lần giao tiếp tiếp theo với server.",
@@ -421,6 +423,8 @@
     "Không khôi phục được dịch vụ cũ: ": "Không khôi phục được dịch vụ cũ: "
   },
   "en": {
+    "Phiên bản: ": "Version: ",
+    "Chưa rõ": "Unknown",
     "Buộc cập nhật dù trùng phiên bản": "Force update even with the same version",
     "Khi bật, client hỗ trợ sẽ cài lại một lần cho mỗi lượt phát hành. Không hạ phiên bản.": "When enabled, supported clients reinstall once per publication. Newer clients are never downgraded.",
     "Đã phát hành. Client đủ điều kiện sẽ nhận lệnh cập nhật trong lần giao tiếp tiếp theo với server.": "Published. Eligible clients will receive an update command on their next communication with the server.",

@@ -15,7 +15,7 @@ import { cleanText, validateRegistration } from './validation.js';
 import { isTunnelKey } from './tunnel-policy.js';
 import { attachMeshTransport } from './mesh-transport.js';
 import { EnrollmentInvites } from './enrollment.js';
-import { attachClientUpdates } from './client-updates.js';
+import { attachClientUpdates, validVersion } from './client-updates.js';
 import { attachSetupDownload } from './setup-download.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -95,7 +95,7 @@ function error(res, status, code) {
 }
 
 async function clientAuth(req, res, next) {
-  const client = await store.authenticateClient(req.header('x-device-id'), req.header('x-device-secret'));
+  const client = await store.authenticateClient(req.header('x-device-id'), req.header('x-device-secret'), validVersion(req.header('x-client-version')) ? req.header('x-client-version') : null);
   if (!client) return error(res, 401, 'CLIENT_AUTH_FAILED');
   req.client = client;
   next();
@@ -122,6 +122,7 @@ attachClientUpdates(app, { dataDir, adminAuth, audit: (action, detail) => store.
 app.post('/api/client/register', async (req, res) => {
   const input = validateRegistration(req.body ?? {});
   if (!input) return error(res, 400, 'INVALID_REGISTRATION');
+  input.clientVersion = validVersion(req.header('x-client-version')) ? req.header('x-client-version') : null;
   if (!store.data.clients.some(client => client.id === input.deviceId)) return error(res, 403, 'ENROLLMENT_REQUIRED');
   try {
     res.json(await store.registerClient(input));
@@ -135,6 +136,7 @@ const enrollmentLimiter = rateLimit({ windowMs: 60_000, limit: 20, standardHeade
 app.post('/api/client/enroll/:id', enrollmentLimiter, async (req, res) => {
   const input = validateRegistration(req.body ?? {});
   if (!input) return error(res, 400, 'INVALID_REGISTRATION');
+  input.clientVersion = validVersion(req.header('x-client-version')) ? req.header('x-client-version') : null;
   if (!invitations.claim(req.params.id, req.header('x-enrollment-key'), input.deviceId, input.secret))
     return error(res, 404, 'ENROLLMENT_INVALID_OR_EXPIRED');
   try { res.setHeader('Cache-Control', 'no-store'); res.json(await store.registerClient(input)); }

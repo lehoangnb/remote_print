@@ -67,6 +67,18 @@ test('Windows share discovery, Room approval/revocation and removed document API
     assert.equal(result.body.publicKey, undefined);
     assert.equal(result.body.printerCapabilities, undefined);
   }
+  const versioned = { ...headers(a), 'x-client-version': '1.1.9' };
+  assert.equal((await json('/api/client/status', { headers: versioned })).response.status, 200);
+  let listed = await json('/api/admin/clients', { headers: admin });
+  assert.equal(listed.body.find(client => client.id === a.deviceId).clientVersion, '1.1.9');
+  assert.equal(listed.body.find(client => client.id === b.deviceId).clientVersion, null);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'db.json'))).clients.find(client => client.id === a.deviceId).clientVersion, '1.1.9');
+  await json('/api/client/status', { headers: { ...versioned, 'x-client-version': 'invalid' } });
+  await json('/api/client/status', { headers: { ...versioned, 'x-client-version': '2.0.0', 'x-device-secret': 'wrong-secret' } });
+  listed = await json('/api/admin/clients', { headers: admin });
+  assert.equal(listed.body.find(client => client.id === a.deviceId).clientVersion, '1.1.9');
+  await json('/api/client/status', { headers: { ...versioned, 'x-client-version': '1.2.0' } });
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'db.json'))).clients.find(client => client.id === a.deviceId).clientVersion, '1.2.0');
   assert.equal((await json('/api/client/peers', { headers: headers(a) })).response.status, 403);
   assert.equal((await json('/api/client/register', { method: 'POST', body: JSON.stringify(a) })).response.status, 200);
   assert.equal((await json('/api/client/register', { method: 'POST', body: JSON.stringify({...a, secret:'wrong-secret-with-more-than-32-characters'}) })).response.status, 401);

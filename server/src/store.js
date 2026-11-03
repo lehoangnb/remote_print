@@ -89,6 +89,7 @@ export class Store {
       existing.printers = input.printers;
       existing.windowsPrinterShares = input.windowsPrinterShares ?? {};
       existing.nativePrinting = input.nativePrinting === true;
+      if (input.clientVersion) existing.clientVersion = input.clientVersion;
       existing.lastSeenAt = now;
       this.#save();
       return this.publicClient(existing);
@@ -97,6 +98,7 @@ export class Store {
     const client = {
       id: input.deviceId,
       name: input.name,
+      clientVersion: input.clientVersion || null,
       secretHash: hashDeviceSecret(input.secret),
       printers: input.printers,
       windowsPrinterShares: input.windowsPrinterShares ?? {},
@@ -114,11 +116,13 @@ export class Store {
     return this.publicClient(client);
   }
 
-  async authenticateClient(deviceId, secret) {
+  async authenticateClient(deviceId, secret, clientVersion = null) {
     const client = this.data.clients.find((x) => x.id === deviceId);
     if (!client || !secret || !(await verifyDeviceSecret(secret, client.secretHash))) return null;
     const now = new Date();
-    const shouldPersist = now.getTime() - (this.lastSeenPersisted.get(client.id) ?? 0) >= 15_000;
+    const versionChanged = Boolean(clientVersion && client.clientVersion !== clientVersion);
+    if (versionChanged) client.clientVersion = clientVersion;
+    const shouldPersist = versionChanged || now.getTime() - (this.lastSeenPersisted.get(client.id) ?? 0) >= 15_000;
     client.lastSeenAt = now.toISOString();
     if (shouldPersist) {
       this.#save();
@@ -131,6 +135,7 @@ export class Store {
     return {
       id: client.id,
       name: client.name,
+      clientVersion: client.clientVersion ?? null,
       printers: client.printers,
       windowsPrinterShares: client.windowsPrinterShares ?? {},
       nativePrinting: client.nativePrinting === true,

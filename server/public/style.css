@@ -172,7 +172,7 @@ td { padding: 13px 14px; border-bottom: 1px solid #e9ebef; vertical-align: top; 
 .machine-avatar { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 5px; background: #e8edf3; color: #5b7186; flex-shrink: 0; }
 .machine-avatar .icon { width: 16px; height: 16px; }
 .machine-name strong { font-size: 13px; font-weight: 650; overflow-wrap: anywhere; }
-.machine-id, .machine-tunnel { display: block; color: #6b7581; font-size: 11px; overflow-wrap: anywhere; }
+.machine-id, .machine-version, .machine-tunnel { display: block; color: #6b7581; font-size: 11px; overflow-wrap: anywhere; }
 .machine-id { font-family: Consolas, ui-monospace, monospace; }
 .machine-tunnel { margin-top: 6px; }
 .pill { display: inline-flex; align-items: center; gap: 5px; padding: 3px 7px; border-radius: 4px; background: #edf0f4; color: #526274; font-size: 12px; font-weight: 600; white-space: nowrap; }
