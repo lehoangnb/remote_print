@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Net;
 using System.Security.Cryptography;
+using System.Text;
 
 namespace RemotePrint.Service;
 
@@ -8,19 +9,30 @@ namespace RemotePrint.Service;
 // server endpoint and random transaction by MeshTransport.
 public static class StunProtocol
 {
-    public static byte[] Request()
+    // Remote Print's STUN listener is private to authorized mesh sessions.
+    // The RFC 8489 USERNAME attribute carries the existing, random 64-byte
+    // session cookie. The 88-byte request is larger than its 32-byte reply,
+    // avoiding unauthenticated reflection/amplification.
+    public static byte[] AuthenticatedRequest(string cookie)
     {
-        var packet = new byte[20];
+        if (cookie.Length != 64 || !cookie.All(char.IsAsciiHexDigit))
+            throw new ArgumentException("Invalid mesh STUN cookie.", nameof(cookie));
+        var packet = new byte[88];
         BinaryPrimitives.WriteUInt16BigEndian(packet, 1);
+        BinaryPrimitives.WriteUInt16BigEndian(packet.AsSpan(2), 68);
         BinaryPrimitives.WriteUInt32BigEndian(packet.AsSpan(4), 0x2112A442);
-        RandomNumberGenerator.Fill(packet.AsSpan(8));
+        RandomNumberGenerator.Fill(packet.AsSpan(8, 12));
+        BinaryPrimitives.WriteUInt16BigEndian(packet.AsSpan(20), 0x0006); // USERNAME
+        BinaryPrimitives.WriteUInt16BigEndian(packet.AsSpan(22), 64);
+        Encoding.ASCII.GetBytes(cookie).CopyTo(packet, 24);
         return packet;
     }
 
     public static IPEndPoint? Response(ReadOnlySpan<byte> packet, ReadOnlySpan<byte> request)
     {
-        if (packet.Length < 20 || request.Length != 20 || BinaryPrimitives.ReadUInt16BigEndian(packet) != 0x101 ||
-            BinaryPrimitives.ReadUInt32BigEndian(packet[4..]) != 0x2112A442 || !packet.Slice(8, 12).SequenceEqual(request[8..])) return null;
+        if (packet.Length < 20 || request.Length != 88 || BinaryPrimitives.ReadUInt16BigEndian(packet) != 0x101 ||
+            BinaryPrimitives.ReadUInt32BigEndian(packet[4..]) != 0x2112A442 ||
+            !packet.Slice(8, 12).SequenceEqual(request.Slice(8, 12))) return null;
         var length = BinaryPrimitives.ReadUInt16BigEndian(packet[2..]);
         if (length % 4 != 0 || length + 20 != packet.Length) return null;
         for (var offset = 20; offset + 4 <= packet.Length;)

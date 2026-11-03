@@ -55,22 +55,23 @@ public sealed class TunnelFirewall(string tunnelName)
 
     public static string NativeBlockedTcpPorts => $"1-{NativePrintProtocol.Port - 1},{NativePrintProtocol.Port + 1}-65535";
 
-    public void ApplyDirect(int port, IEnumerable<string> peerAddresses)
+    public void ApplyDirect(int port, bool hasAuthorizedPeers)
     {
         if (port is < 1024 or > 65535) throw new InvalidDataException("Cổng direct UDP không hợp lệ.");
-        var addresses = peerAddresses.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
-        if (addresses.Any(a => !System.Net.IPAddress.TryParse(a, out var ip) ||
-            ip.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork || System.Net.IPAddress.IsLoopback(ip) ||
-            WireGuardConfig.ValidAddress(a))) throw new InvalidDataException("Địa chỉ direct UDP không hợp lệ.");
-        var spec = port + ":" + string.Join(',', addresses);
+        var spec = port + ":" + hasAuthorizedPeers;
         if (_lastDirectSpec == spec) return;
         dynamic policy = Activator.CreateInstance(Type.GetTypeFromProgID("HNetCfg.FwPolicy2")!)!;
         RemoveOwnedRule(policy, DirectRuleName);
-        if (addresses.Length > 0)
+        if (hasAuthorizedPeers)
         {
             dynamic rule = Activator.CreateInstance(Type.GetTypeFromProgID("HNetCfg.FWRule")!)!;
             rule.Name = DirectRuleName; rule.Description = Marker; rule.Protocol = 17;
-            rule.LocalPorts = port.ToString(); rule.RemoteAddresses = string.Join(',', addresses);
+            // A peer-reflexive NAT mapping may arrive from an IP different from
+            // its advertised STUN/discovery candidate. IP filtering here would
+            // drop the authenticated probe before MeshTransport can learn it.
+            // Restrict to this service and ephemeral port; the mesh lease,
+            // peer identity and HMAC are enforced before any packet is delivered.
+            rule.LocalPorts = port.ToString(); rule.RemoteAddresses = "*";
             rule.ApplicationName = Environment.ProcessPath; rule.Direction = 1; rule.Action = 1;
             rule.Profiles = 7; rule.Enabled = true; policy.Rules.Add(rule);
         }

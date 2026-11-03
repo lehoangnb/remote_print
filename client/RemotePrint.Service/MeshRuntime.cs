@@ -22,14 +22,14 @@ public sealed class MeshRuntime : IAsyncDisposable
     public bool Authorized => _transport.Authorized;
     public MeshTransportDiagnostics Diagnostics => _transport.Diagnostics;
     public bool Matches(TunnelInfo info) => _info.Address == info.Address && _info.UdpHost == info.UdpHost && _info.UdpPort == info.UdpPort &&
-        _info.StunHost == info.StunHost && _info.StunPort == info.StunPort;
+        _info.EmbeddedStun == info.EmbeddedStun;
 
     public MeshRuntime(ClientConfig config, TunnelInfo info, WireGuardManager wireguard,
         TunnelFirewall firewall, Func<bool> sharesEnabled)
     {
         _info = info; _wireguard = wireguard; _firewall = firewall; _sharesEnabled = sharesEnabled;
         _transport = new MeshTransport(new(config.ServerUrl, config.DeviceId, config.DeviceSecret),
-            new(info.Address, info.UdpHost, info.UdpPort, info.StunHost, info.StunPort));
+            new(info.Address, info.UdpHost, info.UdpPort, info.EmbeddedStun));
         using (var port = new UdpClient(new IPEndPoint(IPAddress.Any, 0)))
             _listenPort = ((IPEndPoint)port.Client.LocalEndPoint!).Port;
         _transport.SetWireGuardPort(_listenPort);
@@ -55,7 +55,7 @@ public sealed class MeshRuntime : IAsyncDisposable
                         {
                             _firewall.Remove(); await _wireguard.StopAsync(ct); active = false;
                         }
-                        else _firewall.ApplyDirect(_transport.LocalUdpPort, []);
+                        else _firewall.ApplyDirect(_transport.LocalUdpPort, false);
                     }
                     else
                     {
@@ -67,7 +67,7 @@ public sealed class MeshRuntime : IAsyncDisposable
                         await _wireguard.EnsureMeshAsync(_info.Address, peers, _listenPort, ct);
                         active = true;
                         _firewall.ApplyMesh(_info.Address, enabled ? peers.Select(p => p.Address) : []);
-                        _firewall.ApplyDirect(_transport.LocalUdpPort, _transport.DirectPeerAddresses);
+                        _firewall.ApplyDirect(_transport.LocalUdpPort, peers.Count > 0);
                         if (_transport.Authorized) { _transport.SetTrafficEnabled(true); applied = spec; }
                         var handshakes = await _wireguard.RecentMeshHandshakesAsync(ct);
                         Volatile.Write(ref _ready, peers.Where(p => handshakes.Contains(p.PublicKey)).ToArray());

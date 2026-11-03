@@ -12,7 +12,7 @@ using System.Text.Json;
 namespace RemotePrint.Service;
 
 public sealed record MeshTransportIdentity(string ServerUrl, string DeviceId, string DeviceSecret);
-public sealed record MeshTransportOptions(string Address, string UdpHost, int UdpPort, string StunHost = "", int StunPort = 3478);
+public sealed record MeshTransportOptions(string Address, string UdpHost, int UdpPort, bool EmbeddedStun = false);
 
 public sealed class MeshPeerState
 {
@@ -37,7 +37,7 @@ public sealed record MeshPeerDiagnostics(string Id, string[] Candidates, string?
     long RelayBytesSent, long RelayBytesReceived);
 public sealed record MeshTransportDiagnostics(int LocalUdpPort, string DiscoveryHost, string[] DiscoveryEndpoints,
     string? ObservedEndpoint, string? DnsError, string? UdpError, long DiscoverySent, long AuthenticationRejected,
-    string StunServer, string[] PublicEndpoints, MeshPeerDiagnostics[] Peers);
+    string StunServer, string[] PublicEndpoints, MeshPeerDiagnostics[] Peers, long EmbeddedStunReplies = 0);
 
 // WireGuard performs all data encryption/authentication. This bridge only moves
 // its already-encrypted UDP packets, using authenticated probes to select a path.
@@ -82,10 +82,11 @@ public sealed class MeshTransport : IAsyncDisposable
     private string _cookie = "";
     private IPEndPoint[] _discoveryEndpoints = [];
     private string? _observedEndpoint, _dnsError, _udpError;
-    private long _discoverySent, _authenticationRejected;
+    private long _discoverySent, _authenticationRejected, _embeddedStunReplies;
     private sealed record StunPending(byte[] Request, IPEndPoint Server, long At);
     private readonly ConcurrentDictionary<string, StunPending> _stunRequests = new();
     private readonly ConcurrentDictionary<string, long> _publicEndpoints = new();
+    private int _networkRevision;
     private int _wireGuardPort;
     private int _trafficEnabled = 1;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -96,17 +97,17 @@ public sealed class MeshTransport : IAsyncDisposable
     public MeshTransportDiagnostics Diagnostics => new(LocalUdpPort, DiscoveryHost,
         Volatile.Read(ref _discoveryEndpoints).Select(e => e.ToString()).ToArray(), _observedEndpoint,
         _dnsError, _udpError, Interlocked.Read(ref _discoverySent), Interlocked.Read(ref _authenticationRejected),
-        string.IsNullOrEmpty(_info.StunHost) ? "" : $"{_info.StunHost}:{_info.StunPort}", PublicEndpoints,
+        _info.EmbeddedStun ? $"{DiscoveryHost}:{_info.UdpPort} (Remote Print)" : "", PublicEndpoints,
         _peers.Values.Select(p => new MeshPeerDiagnostics(p.State.Id, p.State.Endpoints.ToArray(), p.Direct?.ToString(),
             Interlocked.Read(ref p.ProbesSent), Interlocked.Read(ref p.ProbesReceived), Interlocked.Read(ref p.AcksReceived),
             Interlocked.Read(ref p.DirectBytesSent), Interlocked.Read(ref p.DirectBytesReceived),
-            Interlocked.Read(ref p.RelayBytesSent), Interlocked.Read(ref p.RelayBytesReceived))).ToArray());
+            Interlocked.Read(ref p.RelayBytesSent), Interlocked.Read(ref p.RelayBytesReceived))).ToArray(),
+        Interlocked.Read(ref _embeddedStunReplies));
+    // A WAN failover can create several NAT mappings in one minute. Always
+    // advertise the newest four; otherwise old mappings can crowd out the
+    // current endpoint even though STUN is still succeeding.
     private string[] PublicEndpoints => _publicEndpoints.Where(p => Stopwatch.GetElapsedTime(p.Value).TotalSeconds < 60)
-        .Select(p => p.Key).Take(4).ToArray();
-    public IReadOnlyList<string> DirectPeerAddresses => _peers.Values.SelectMany(p => p.State.Endpoints
-        .Select(e => IPEndPoint.Parse(e).Address.ToString())
-        .Concat(p.Reflexive is null ? [] : new[] { p.Reflexive.Address.ToString() }))
-        .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        .OrderByDescending(p => p.Value).Select(p => p.Key).Take(4).ToArray();
     public bool Authorized => Volatile.Read(ref _leaseAt) > 0 &&
         Stopwatch.GetElapsedTime(Volatile.Read(ref _leaseAt)).TotalMilliseconds < Volatile.Read(ref _leaseMs);
     public IReadOnlyList<MeshBinding> Bindings => !Authorized ? [] : _peers.Values.Select(p =>
@@ -115,7 +116,34 @@ public sealed class MeshTransport : IAsyncDisposable
 
     public MeshTransport(MeshTransportIdentity config, MeshTransportOptions info,
         Func<string, CancellationToken, Task<IPAddress[]>>? resolve = null)
-    { _config = config; _info = info; _resolve = resolve ?? ((host, ct) => Dns.GetHostAddressesAsync(host, ct)); }
+    {
+        _config = config; _info = info; _resolve = resolve ?? ((host, ct) => Dns.GetHostAddressesAsync(host, ct));
+        NetworkChange.NetworkAddressChanged += OnNetworkAddressChanged;
+        NetworkChange.NetworkAvailabilityChanged += OnNetworkAvailabilityChanged;
+    }
+    private void OnNetworkAddressChanged(object? sender, EventArgs e) => NotifyNetworkChanged();
+    private void OnNetworkAvailabilityChanged(object? sender, NetworkAvailabilityEventArgs e) => NotifyNetworkChanged();
+
+    // Only signal from the OS callback. The transport loop owns state changes,
+    // so network notifications cannot race with peer state updates.
+    public void NotifyNetworkChanged() => Interlocked.Increment(ref _networkRevision);
+
+    private void InvalidateNetworkCandidates()
+    {
+        _stunRequests.Clear();
+        _publicEndpoints.Clear();
+        _observedEndpoint = null;
+        _dnsError = _udpError = null;
+        Volatile.Write(ref _discoveryEndpoints, []);
+        foreach (var peer in _peers.Values)
+        {
+            peer.Direct = null;
+            peer.Reflexive = null;
+            peer.Challenge = null;
+            peer.ChallengeAt = 0;
+            Volatile.Write(ref peer.LastAck, 0);
+        }
+    }
     public void SetWireGuardPort(int port)
     {
         if (port is < 1 or > 65535) throw new ArgumentOutOfRangeException(nameof(port));
@@ -171,6 +199,10 @@ public sealed class MeshTransport : IAsyncDisposable
     {
         Volatile.Write(ref _leaseAt, 0);
         foreach (var (id, peer) in _peers) if (_peers.TryRemove(id, out _)) peer.Dispose();
+        // A new control session follows a potentially different WAN mapping.
+        // Do not advertise STUN/discovery observations from the old session.
+        InvalidateNetworkCandidates();
+        _cookie = "";
     }
     private async Task ReadAsync(ClientWebSocket ws, CancellationToken ct)
     {
@@ -238,9 +270,32 @@ public sealed class MeshTransport : IAsyncDisposable
     {
         long resolvedAt = 0;
         long stunAt = 0;
+        var networkRevision = Volatile.Read(ref _networkRevision);
         while (!ct.IsCancellationRequested)
         {
             if (Volatile.Read(ref _leaseAt) > 0 && !Authorized) throw new IOException("Mesh lease hết hạn.");
+            var currentRevision = Volatile.Read(ref _networkRevision);
+            if (currentRevision != networkRevision)
+            {
+                networkRevision = currentRevision;
+                InvalidateNetworkCandidates();
+                // Re-resolve discovery and re-query STUN on the same UDP socket
+                // as soon as connectivity returns; the old NAT port is stale.
+                resolvedAt = stunAt = 0;
+            }
+            // A router/WAN outage may leave the local NIC and its IP untouched,
+            // so Windows emits no address/availability notification. If an
+            // established direct route expires, force fresh STUN/discovery
+            // rather than waiting on normal refresh intervals.
+            var lostDirect = false;
+            foreach (var peer in _peers.Values)
+                if (peer.Direct is not null && Stopwatch.GetElapsedTime(Volatile.Read(ref peer.LastAck)).TotalSeconds >= 8)
+                {
+                    peer.Direct = null;
+                    peer.Reflexive = null;
+                    lostDirect = true;
+                }
+            if (lostDirect) resolvedAt = stunAt = 0;
             // A DNS failure at service startup must not disable discovery until
             // the next WS reconnect. Refresh successful answers too (DDNS/VPN).
             if (resolvedAt == 0 || Stopwatch.GetElapsedTime(resolvedAt).TotalSeconds >=
@@ -267,25 +322,18 @@ public sealed class MeshTransport : IAsyncDisposable
                 .Select(ip => ip.ToString()).Distinct().Take(16).ToArray();
             foreach (var pending in _stunRequests.Where(p => Stopwatch.GetElapsedTime(p.Value.At).TotalSeconds > 10)) _stunRequests.TryRemove(pending.Key, out _);
             foreach (var known in _publicEndpoints.Where(p => Stopwatch.GetElapsedTime(p.Value).TotalSeconds >= 60)) _publicEndpoints.TryRemove(known.Key, out _);
-            if (Authorized && !string.IsNullOrEmpty(_info.StunHost) &&
+            if (Authorized && _info.EmbeddedStun &&
                 (stunAt == 0 || Stopwatch.GetElapsedTime(stunAt).TotalSeconds >= 15))
             {
                 stunAt = Stopwatch.GetTimestamp();
-                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                timeout.CancelAfter(TimeSpan.FromSeconds(3));
-                try
-                {
-                    var ips = await Dns.GetHostAddressesAsync(_info.StunHost, timeout.Token);
-                    foreach (var ip in ips.Where(ip => ip.AddressFamily == AddressFamily.InterNetwork).Distinct().Take(2))
+                if (_cookie.Length == 64)
+                    foreach (var endpoint in Volatile.Read(ref _discoveryEndpoints))
                     {
-                        var request = StunProtocol.Request();
-                        var server = new IPEndPoint(ip, _info.StunPort);
-                        _stunRequests[Convert.ToHexString(request.AsSpan(8))] = new(request, server, Stopwatch.GetTimestamp());
-                        await SendUdpAsync(request, server, ct);
+                        var request = StunProtocol.AuthenticatedRequest(_cookie);
+                        _stunRequests[Convert.ToHexString(request.AsSpan(8, 12))] =
+                            new(request, endpoint, Stopwatch.GetTimestamp());
+                        await SendUdpAsync(request, endpoint, ct);
                     }
-                }
-                catch (SocketException) { /* STUN is optional; retain native discovery/relay. */ }
-                catch (OperationCanceledException) when (!ct.IsCancellationRequested) { }
             }
             await SendWsAsync(JsonSerializer.SerializeToUtf8Bytes(new { type = "ping", lan, port, publicEndpoints = PublicEndpoints }), WebSocketMessageType.Text, ct);
             if (_cookie.Length == 64)
@@ -353,10 +401,16 @@ public sealed class MeshTransport : IAsyncDisposable
             if (Authorized && packet.Buffer.Length >= 20 && packet.Buffer[0] == 1 && packet.Buffer[1] == 1 &&
                 _stunRequests.TryGetValue(Convert.ToHexString(packet.Buffer.AsSpan(8, 12)), out var pending) &&
                 pending.Server.Equals(packet.RemoteEndPoint) && Stopwatch.GetElapsedTime(pending.At).TotalSeconds < 10 &&
-                StunProtocol.Response(packet.Buffer, pending.Request) is { } mapped && !IsPrivate(mapped.Address) && ValidEndpoint(mapped.ToString()))
+                StunProtocol.Response(packet.Buffer, pending.Request) is { } mapped)
             {
                 _stunRequests.TryRemove(Convert.ToHexString(packet.Buffer.AsSpan(8, 12)), out _);
-                _publicEndpoints[mapped.ToString()] = Stopwatch.GetTimestamp();
+                Interlocked.Increment(ref _embeddedStunReplies);
+                // The server can observe only a private router address when
+                // the client reaches it through NAT hairpin. Keep the valid
+                // reply in diagnostics, but do not advertise a private STUN
+                // mapping as a WAN candidate.
+                if (!IsPrivate(mapped.Address) && ValidEndpoint(mapped.ToString()))
+                    _publicEndpoints[mapped.ToString()] = Stopwatch.GetTimestamp();
                 continue;
             }
             if (!Authorized || ForceRelay || packet.Buffer.Length < 77) continue;
@@ -449,6 +503,8 @@ public sealed class MeshTransport : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        NetworkChange.NetworkAddressChanged -= OnNetworkAddressChanged;
+        NetworkChange.NetworkAvailabilityChanged -= OnNetworkAvailabilityChanged;
         _stop.Cancel(); _ws?.Abort(); Revoke();
         if (_run is not null) await _run;
         Task[] loops; lock (_localLoops) loops = _localLoops.ToArray();

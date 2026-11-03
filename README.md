@@ -100,18 +100,49 @@ Với client ở cùng LAN với server, NAT loopback có thể làm discovery n
 IP riêng của router. Server bổ sung candidate từ IP public của
 `MESH_PUBLIC_HOST`. Client mới ưu tiên địa chỉ WAN lấy bằng STUN trên chính
 socket mesh, vì WAN của client có thể khác WAN server (nhiều đường Internet/VPN).
-Mặc định dùng `stun.cloudflare.com:3478`; đổi bằng `MESH_STUN_HOST` và
-`MESH_STUN_PORT` trên server, hoặc đặt `MESH_STUN_HOST` rỗng để tắt STUN.
-STUN chỉ trao đổi IP/cổng và transaction ID, không gửi khóa hay dữ liệu in.
+Client phiên bản 1.1.17 dùng chính **Remote Print server làm STUN** trên cổng
+UDP mesh `51821`: gửi Binding Request RFC 8489 có `USERNAME` là cookie
+ngẫu nhiên của phiên WSS được xác thực, nhận `XOR-MAPPED-ADDRESS` với IP/cổng
+mà server quan sát. Server chỉ phản hồi cho client còn lease, giới hạn tần suất
+và trả gói 32 byte cho request 88 byte để tránh khuếch đại UDP. Không cần cổng
+STUN bổ sung. **Client chỉ gửi STUN tới Remote Print server**; không liên hệ
+Cloudflare, Google hoặc dịch vụ STUN bên thứ ba. Discovery `RPM1` vẫn chạy.
+
+Với router multi-WAN, STUN nội bộ chỉ quan sát ánh xạ UDP trên tuyến tới
+Remote Print server; router có thể chọn WAN khác khi gửi UDP tới peer. Khi
+NAT loopback, server có thể chỉ nhìn thấy địa chỉ riêng. Candidate được trao
+đổi với peer qua kênh WSS có xác thực, nhưng STUN nội bộ không thể phát hiện
+các WAN khác nếu router chọn tuyến khác theo địa chỉ đích.
+Nếu router multi-WAN dùng NAT lọc theo IP/port đích hoặc ánh xạ thay đổi theo
+từng đích, có nhiều candidate vẫn không bảo đảm hole punching được.
+Giải pháp ở phía router là policy routing giữ lưu lượng UDP phát ra từ
+IP LAN của Home-PC trên một WAN cố định (thay vì chia tải theo đích);
+cấu hình này cần giữ ánh xạ UDP đủ lâu để các probe hai phía nhận được ACK.
+Client hiện dùng cổng UDP local động, nên không thể cấu hình port-forward
+cố định một lần rồi mặc định trỏ đúng cổng đó.
+STUN nội bộ mang cookie phiên ngắn hạn giống discovery `RPM1`, không gửi
+khóa WireGuard, mật khẩu thiết bị hay dữ liệu in.
 Client chỉ dùng candidate khi nhận ACK xác thực, đồng thời thử lại
-cổng nguồn thực của peer nếu NAT đổi cổng theo đích. Firewall Windows giới hạn
-UDP trực tiếp theo chương trình service, cổng đang dùng và IP các peer được
-cấp quyền; quy tắc bị gỡ khi ngắt mesh/thu hồi quyền. NAT chặn cả hai chiều vẫn
-cần relay.
+cổng nguồn thực của peer nếu NAT đổi cổng theo đích. Firewall Windows chỉ mở
+UDP trực tiếp cho chương trình service trên cổng tạm thời đang dùng khi có
+peer được cấp quyền; IP nguồn có thể khác candidate STUN khi NAT ánh xạ theo
+đích. Mọi probe phải qua xác thực HMAC và kiểm tra lease/Room trước khi dữ liệu
+WireGuard được chuyển tiếp. Quy tắc bị gỡ khi ngắt mesh/thu hồi quyền;
+NAT chặn cả hai chiều vẫn cần relay.
+
+Khi card mạng mất kết nối hoặc đổi địa chỉ rồi hoạt động trở lại, client
+xóa candidate STUN và endpoint direct cũ, lập tức thử lại DNS discovery/STUN trên
+socket UDP mesh, công bố candidate mới qua phiên điều khiển và tự nâng từ relay
+về direct khi nhận ACK HMAC hợp lệ. Nếu WebSocket phải tạo lại phiên, cache NAT
+của phiên trước cũng bị hủy. Nếu chỉ mất đường WAN mà card mạng vẫn báo hoạt động,
+client phát hiện direct ACK hết hạn và thử lại STUN/discovery sớm; candidate NAT
+mới luôn được ưu tiên hơn địa chỉ cũ. Đường relay được dùng trong thời gian chờ xác thực
+direct hoặc khi NAT không cho phép UDP ngang hàng.
 
 API admin `GET /api/admin/mesh` cho biết endpoint quan sát được, tuổi discovery
 và candidate từng client; không trả cookie/token. Snapshot IPC `status` có
-`meshDiagnostics` với DNS, bộ đếm gửi discovery/probe và ACK, giúp phân biệt
+`meshDiagnostics` với DNS, `embeddedStunReplies`, bộ đếm gửi discovery/probe
+và ACK, giúp phân biệt
 UDP server hoạt động với kết nối trực tiếp đã được xác thực. Các bộ đếm byte
 WireGuard direct/relay cho phép kiểm tra dữ liệu thực đi trên đường nào.
 Đọc chẩn đoán trên tài khoản Windows đã ghép nối bằng
@@ -387,7 +418,7 @@ dotnet run --project client/RemotePrint.Checks -c Release -- --ui-fit-check "$PW
 
 ```powershell
 .\scripts\publish-client.ps1
-.\scripts\publish.ps1 -SkipClient
+.\scripts\publish.ps1 -SkipClient -Registry 192.168.0.220:5999 # chỉ push tag latest
 cd server
 npm test
 cd ..

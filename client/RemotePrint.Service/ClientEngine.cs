@@ -207,8 +207,7 @@ public sealed class ClientEngine : IDisposable, INativeRelayHost
             }
             if (info.Mode == "mesh-v1")
             {
-                if (!WireGuardConfig.ValidAddress(info.Address) || info.UdpPort is < 1 or > 65535 || info.StunPort is < 1 or > 65535 ||
-                    info.StunHost.Length > 253 || info.StunHost.Any(c => !char.IsAsciiLetterOrDigit(c) && c is not ('.' or '-')))
+                if (!WireGuardConfig.ValidAddress(info.Address) || info.UdpPort is < 1 or > 65535)
                     throw new InvalidDataException("Mesh configuration không hợp lệ.");
                 if (_mesh is not null && !_mesh.Matches(info)) await StopMeshAsync();
                 if (_mesh is null)

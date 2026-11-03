@@ -1,8 +1,6 @@
 ﻿param(
     [ValidateSet('win-x64', 'win-arm64')]
     [string]$Runtime = 'win-x64',
-    [ValidatePattern('^[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,127}$')]
-    [string]$Tag = 'latest',
     [string]$Registry = 'registry.xn--lh-eja.vn',
     [switch]$SkipClient,
     [switch]$SkipServer,
@@ -16,8 +14,8 @@ if ($Registry -notmatch '^[a-zA-Z0-9.-]+(:[0-9]{1,5})?$') {
 }
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$image = "$Registry/remote-print-server`:$Tag"
-$tunnelImage = "$Registry/remote-print-tunnel`:$Tag"
+$image = "$Registry/remote-print-server`:latest"
+$tunnelImage = "$Registry/remote-print-tunnel`:latest"
 
 if (-not $SkipClient) {
     Write-Host "Publishing client ($Runtime)..."

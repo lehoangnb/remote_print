@@ -45,8 +45,7 @@ public sealed class TunnelPeer
 
 public sealed class TunnelInfo
 {
-    public string StunHost { get; set; } = "";
-    public int StunPort { get; set; } = 3478;
+    public bool EmbeddedStun { get; set; }
     public string Mode { get; set; } = "legacy";
     public string UdpHost { get; set; } = "";
     public int UdpPort { get; set; } = 51821;

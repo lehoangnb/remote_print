@@ -79,6 +79,34 @@ test('mesh relay authorizes each packet, keeps ciphertext opaque, discovers UDP 
     assert.match(diagnostics.clients.find(x => x.id === a.id).observedEndpoint, /^127\.0\.0\.1:\d+$/);
     assert.equal(JSON.stringify(diagnostics).includes(a.state.cookie), false);
     assert.equal(JSON.stringify(diagnostics).includes(a.state.peers[0].token), false);
+    const request = Buffer.alloc(88);
+    request.writeUInt16BE(1);
+    request.writeUInt16BE(68, 2);
+    request.writeUInt32BE(0x2112a442, 4);
+    Buffer.alloc(12, 0x5a).copy(request, 8);
+    request.writeUInt16BE(6, 20); // RFC 8489 USERNAME
+    request.writeUInt16BE(64, 22);
+    request.write(a.state.cookie, 24, 'ascii');
+    const answerPromise = Promise.race([
+      once(udp, 'message').then(([packet]) => packet),
+      wait(2000).then(() => { throw new Error('Authenticated mesh STUN timed out'); })
+    ]);
+    udp.send(request, relay.udp.address().port, '127.0.0.1');
+    const answer = await answerPromise;
+    assert.equal(answer.length, 32);
+    assert.equal(answer.readUInt16BE(0), 0x0101);
+    assert.equal(answer.readUInt32BE(4), 0x2112a442);
+    assert.deepEqual(answer.subarray(8, 20), request.subarray(8, 20));
+    assert.equal(answer.readUInt16BE(20), 0x0020);
+    assert.equal(answer.readUInt16BE(26) ^ 0x2112, udp.address().port);
+    assert.deepEqual(Array.from(answer.subarray(28, 32), (value, i) => value ^ request[4 + i]), [127, 0, 0, 1]);
+    assert.equal(relay.stats.stunReplies, 1);
+    const forged = Buffer.from(request);
+    forged[24] = forged[24] === 48 ? 49 : 48;
+    udp.send(forged, relay.udp.address().port, '127.0.0.1');
+    udp.send(request.subarray(0, 20), relay.udp.address().port, '127.0.0.1');
+    await wait(80);
+    assert.equal(relay.stats.stunReplies, 1, 'Invalid cookie and unauthenticated STUN must not reflect packets');
     a.publicEndpoints = ['198.51.100.12:45678'];
     await until(() => b.state.peers[0]?.endpoints.includes('198.51.100.12:45678'), 'STUN endpoint was not advertised');
     assert.deepEqual(relay.status().clients.find(x => x.id === a.id).publicEndpoints, a.publicEndpoints);

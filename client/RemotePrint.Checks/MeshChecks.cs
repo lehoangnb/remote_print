@@ -28,7 +28,7 @@ internal static partial class Program
         Require(MeshTransport.VerifyDirect(frame, token), "Direct probes authenticate with per-session pair token");
         frame[40] ^= 1;
         Require(!MeshTransport.VerifyDirect(frame, token), "Tampered direct probe is rejected");
-        var stunRequest = StunProtocol.Request();
+        var stunRequest = StunProtocol.AuthenticatedRequest(token);
         var stunResponse = StunTestResponse(stunRequest, new(IPAddress.Parse("203.0.113.55"), 45678));
         Require(StunProtocol.Response(stunResponse, stunRequest)?.ToString() == "203.0.113.55:45678",
             "STUN decodes the XOR-mapped IPv4 endpoint");
@@ -36,6 +36,11 @@ internal static partial class Program
         Require(StunProtocol.Response(stunResponse, stunRequest) is null &&
             StunProtocol.Response(stunResponse.AsSpan(0, 25), stunRequest) is null,
             "STUN rejects another transaction and truncated responses");
+        Require(stunRequest.Length == 88 &&
+            BinaryPrimitives.ReadUInt16BigEndian(stunRequest.AsSpan(2)) == 68 &&
+            BinaryPrimitives.ReadUInt16BigEndian(stunRequest.AsSpan(20)) == 6 &&
+            System.Text.Encoding.ASCII.GetString(stunRequest, 24, 64) == token,
+            "Embedded STUN uses a live mesh cookie in an RFC 8489 Binding Request");
         var state = new MeshState { Type = "state", Address = "10.247.0.2", Cookie = token, LeaseMs = 15000,
             Peers = [new() { Id = peerId, Address = "10.247.0.3", PublicKey = key, Token = token, Endpoints = ["192.168.1.5:32000"] }] };
         MeshTransport.ValidateState(state, Guid.NewGuid().ToString(), state.Address);
@@ -90,16 +95,17 @@ internal static partial class Program
                 using var approved = await http.PostAsJsonAsync($"/api/admin/clients/{config.DeviceId}/approve", new { room });
                 approved.EnsureSuccessStatusCode();
                 var info = await api.EnrollTunnelAsync(Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)), CancellationToken.None);
-                Require(info?.Mode == "mesh-v1" && info.ServerPublicKey == "", "Mesh enrollment does not distribute a relay decryption key");
+                Require(info?.Mode == "mesh-v1" && info.ServerPublicKey == "" && info.EmbeddedStun,
+                    "Mesh enrollment advertises Remote Print STUN and no relay decryption key");
                 return (config, info!);
             }
             var a = await Enroll("one"); var b = await Enroll("one"); var c = await Enroll("two");
             MeshTransport MakeTransport((ClientConfig Config, TunnelInfo Info) x) => new(
-                new(x.Config.ServerUrl, x.Config.DeviceId, x.Config.DeviceSecret), new(x.Info.Address, x.Info.UdpHost, x.Info.UdpPort));
+                new(x.Config.ServerUrl, x.Config.DeviceId, x.Config.DeviceSecret),
+                new(x.Info.Address, x.Info.UdpHost, x.Info.UdpPort, EmbeddedStun: x.Info.EmbeddedStun));
             var dnsAttempts = 0;
-            await using var stun = new MeshStunFixture();
             await using var ta = new MeshTransport(new(a.Config.ServerUrl, a.Config.DeviceId, a.Config.DeviceSecret),
-                new(a.Info.Address, a.Info.UdpHost, a.Info.UdpPort, privateIp.ToString(), stun.Port), (_, _) =>
+                new(a.Info.Address, a.Info.UdpHost, a.Info.UdpPort, EmbeddedStun: a.Info.EmbeddedStun), (_, _) =>
                 {
                     if (Interlocked.Increment(ref dnsAttempts) == 1) throw new SocketException((int)SocketError.HostNotFound);
                     return Task.FromResult(new[] { IPAddress.Parse("192.0.2.1"), privateIp });
@@ -131,11 +137,14 @@ internal static partial class Program
             }
             await Exchange("C# clients relay opaque WireGuard packets intact through the Node server");
             await WaitMeshAsync(() => Task.FromResult(ta.Diagnostics.ObservedEndpoint is not null));
+            await WaitMeshAsync(() => Task.FromResult(
+                ta.Diagnostics.EmbeddedStunReplies > 0 && tb.Diagnostics.EmbeddedStunReplies > 0));
+            Require(true, "Remote Print mesh UDP server answers authenticated STUN requests to both C# clients");
             Require(dnsAttempts >= 2 && ta.Diagnostics.DiscoveryEndpoints.Length == 2 && ta.Diagnostics.DnsError is null,
                 "Discovery retries a startup DNS failure and reaches the server when the first A record is unusable");
-            await WaitMeshAsync(() => Task.FromResult(ta.Diagnostics.PublicEndpoints.Contains("203.0.113.55:45678") &&
-                tb.Diagnostics.Peers.Single(p => p.Id == a.Config.DeviceId).Candidates.Contains("203.0.113.55:45678")));
-            Require(true, "STUN uses the mesh UDP socket and advertises its public endpoint through authenticated control");
+            Require(ta.Diagnostics.StunServer.Contains("(Remote Print)") &&
+                !ta.Diagnostics.StunServer.Contains(',') && ta.Diagnostics.PublicEndpoints.Length == 0,
+                "Only Remote Print STUN is used; private NAT hairpin observations are not advertised as WAN candidates");
             ta.ForceRelay = tb.ForceRelay = false;
             await WaitMeshAsync(() => Task.FromResult(ta.Bindings.SingleOrDefault()?.Path == "Trực tiếp" && tb.Bindings.SingleOrDefault()?.Path == "Trực tiếp"));
             await Exchange("Authenticated UDP path moves packets directly between C# clients");
@@ -145,8 +154,19 @@ internal static partial class Program
                 ta.Diagnostics.Peers.Single().RelayBytesSent > 0,
                 "WireGuard data counters distinguish bytes delivered directly from earlier relayed bytes");
             tb.ForceRelay = true;
+            var repliesBeforeLoss = ta.Diagnostics.EmbeddedStunReplies;
             await WaitMeshAsync(() => Task.FromResult(ta.Bindings.SingleOrDefault()?.Path == "Qua relay"));
             await Exchange("Loss of direct UDP falls back to WSS without replacing peer bindings");
+            await WaitMeshAsync(() => Task.FromResult(ta.Diagnostics.EmbeddedStunReplies > repliesBeforeLoss));
+            Require(true, "Expired direct ACK re-queries Remote Print STUN without a NIC event");
+            var repliesBeforeNetworkChange = ta.Diagnostics.EmbeddedStunReplies;
+            ta.NotifyNetworkChanged();
+            await WaitMeshAsync(() => Task.FromResult(ta.Diagnostics.EmbeddedStunReplies > repliesBeforeNetworkChange));
+            Require(true, "Network return retries Remote Print STUN after clearing stale candidates");
+            tb.ForceRelay = false;
+            await WaitMeshAsync(() => Task.FromResult(ta.Bindings.SingleOrDefault()?.Path == "Trực tiếp" &&
+                tb.Bindings.SingleOrDefault()?.Path == "Trực tiếp"));
+            await Exchange("Direct UDP recovers after network loss using Remote Print STUN");
             // Model a NAT mapping which is absent from discovery. The bridge
             // must challenge the authenticated incoming source, then keep that
             // learned endpoint alive after the original 8-second path lease.
@@ -232,27 +252,4 @@ internal static partial class Program
         return response;
     }
 
-    private sealed class MeshStunFixture : IAsyncDisposable
-    {
-        private readonly UdpClient _socket = new(new IPEndPoint(IPAddress.Any, 0));
-        private readonly CancellationTokenSource _stop = new();
-        private readonly Task _loop;
-        public int Port => ((IPEndPoint)_socket.Client.LocalEndPoint!).Port;
-        public MeshStunFixture() => _loop = RunAsync();
-        private async Task RunAsync()
-        {
-            try
-            {
-                while (!_stop.IsCancellationRequested)
-                {
-                    var packet = await _socket.ReceiveAsync(_stop.Token);
-                    if (packet.Buffer.Length != 20) continue;
-                    await _socket.SendAsync(StunTestResponse(packet.Buffer, new(IPAddress.Parse("203.0.113.55"), 45678)),
-                        packet.RemoteEndPoint, _stop.Token);
-                }
-            }
-            catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
-        }
-        public async ValueTask DisposeAsync() { _stop.Cancel(); await _loop; _socket.Dispose(); _stop.Dispose(); }
-    }
 }

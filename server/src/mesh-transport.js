@@ -53,7 +53,7 @@ export function attachMeshTransport(server, store, { udpPort = 51821, udpHost = 
     } catch { /* Keep the last usable origin addresses during a DNS outage. */ }
   }
   void resolvePublicHost();
-  const stats = { relayedBytes: 0, droppedPackets: 0, udpReceived: 0, udpAccepted: 0 };
+  const stats = { relayedBytes: 0, droppedPackets: 0, udpReceived: 0, udpAccepted: 0, stunReplies: 0 };
   function valid(s) {
     // Store mutates this enrollment object in place on approval/rejection/key
     // rotation. Avoid an O(client-count) scan on every datagram.
@@ -149,10 +149,36 @@ export function attachMeshTransport(server, store, { udpPort = 51821, udpHost = 
       });
     } catch { socket.destroy(); }
   });
-  // No UDP replies: observed endpoints are sent over the authenticated WS. An
-  // untrusted UDP packet cannot turn the discovery service into an amplifier.
+  // The mesh UDP socket also serves RFC 8489 Binding Success responses, but
+  // only to clients presenting a live WSS session cookie as STUN USERNAME.
+  // Their 88-byte request is larger than the 32-byte response, and each
+  // session is rate-limited. Arbitrary Internet hosts cannot reflect traffic.
   udp.on('message', (data, remote) => {
     stats.udpReceived++;
+    if (data.length === 88 && data.readUInt16BE(0) === 0x0001 &&
+        data.readUInt16BE(2) === 68 && data.readUInt32BE(4) === 0x2112a442 &&
+        data.readUInt16BE(20) === 0x0006 && data.readUInt16BE(22) === 64) {
+      const cookie = data.subarray(24, 88).toString('ascii');
+      const session = /^[0-9a-f]{64}$/iu.test(cookie) ? cookies.get(cookie) : null;
+      if (!session || !valid(session) || session.ws.readyState !== WebSocket.OPEN ||
+          (session.stunAt && Date.now() - session.stunAt < 500) || net.isIP(remote.address) !== 4) return;
+      session.stunAt = Date.now();
+      const response = Buffer.alloc(32);
+      response.writeUInt16BE(0x0101, 0); // Binding Success
+      response.writeUInt16BE(12, 2);
+      data.copy(response, 4, 4, 20); // magic cookie + transaction ID
+      response.writeUInt16BE(0x0020, 20); // XOR-MAPPED-ADDRESS
+      response.writeUInt16BE(8, 22);
+      response[25] = 1; // IPv4
+      response.writeUInt16BE(remote.port ^ 0x2112, 26);
+      const ip = remote.address.split('.').map(Number);
+      for (let i = 0; i < 4; i++) response[28 + i] = ip[i] ^ data[4 + i];
+      udp.send(response, remote.port, remote.address, error => {
+        if (error) console.error(`Mesh STUN UDP error: ${error.message}`);
+      });
+      stats.stunReplies++;
+      return;
+    }
     if (data.length !== 68 || data.subarray(0, 4).toString() !== 'RPM1') return;
     const s = cookies.get(data.subarray(4).toString('ascii'));
     if (!s || !valid(s) || (s.reflectedAt && Date.now() - s.reflectedAt < 1000)) return;
