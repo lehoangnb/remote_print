@@ -3,6 +3,122 @@
 Chia sẻ máy in Windows qua Internet bằng danh tính thiết bị do app quản lý.
 Không tạo user Windows, không yêu cầu tài khoản Windows của máy nhận.
 
+## Tổng quan
+
+Remote Print gồm trang quản trị và API Node.js, ứng dụng Windows WinForms và
+Windows Service. Quản trị viên cấp quyền cho thiết bị theo Room; các máy trong
+cùng Room có thể kết nối máy in được chia sẻ và in từ ứng dụng Windows thông thường.
+Client hỗ trợ Windows x64/ARM64, giao diện Tiếng Việt và English.
+
+## Cách thức hoạt động
+
+```mermaid
+flowchart LR
+    Admin[Quản trị viên] -->|Mã mời, duyệt Room, phát hành client| Server
+    subgraph Server[Remote Print server]
+        API[API và trang quản trị]
+        Discovery[UDP discovery / STUN]
+        Relay[WSS relay]
+    end
+    subgraph Sender[Máy Windows gửi]
+        App[Ứng dụng Windows] --> Queue[Queue Windows và driver máy in]
+        Queue -->|RAW qua LPR loopback| SvcA[Remote Print Service]
+    end
+    subgraph Receiver[Máy Windows nhận]
+        SvcB[Remote Print Service] -->|RAW| Spool[Windows Spooler]
+        Spool --> Printer[Máy in được chia sẻ]
+    end
+    SvcA <-->|Đăng ký, quyền Room, trạng thái và peer| API
+    SvcB <-->|Đăng ký, quyền Room, trạng thái và peer| API
+    SvcA <-->|Tìm endpoint UDP| Discovery
+    SvcB <-->|Tìm endpoint UDP| Discovery
+    SvcA <-->|WireGuard trực tiếp qua UDP khi khả dụng| SvcB
+    SvcA <-->|Gói WireGuard mã hóa khi dùng relay| Relay
+    Relay <-->|Gói WireGuard mã hóa khi dùng relay| SvcB
+```
+
+Server quản lý danh tính, Room và kết nối; nội dung in đi trong tunnel WireGuard
+giữa hai service. Client thử UDP trực tiếp trước và chuyển sang relay WSS khi
+không kết nối trực tiếp được. Khi kết nối máy in, driver được chuyển từ máy sở hữu
+sang máy gửi; khi in, máy nhận kiểm tra quyền và SHA-256 trước khi đưa RAW vào
+Windows Spooler. Xem thêm [Luồng in](#luồng-in) và [Kết nối](#kết-nối).
+
+## Cài đặt nhanh
+
+Các bước dưới đây tự build server từ mã nguồn. Máy build cần Windows, Git,
+.NET 8 SDK và bộ công cụ .NET Framework 4.8; server cần Docker và Docker Compose.
+Máy client cần Windows x64/ARM64, .NET Framework 4.8 và quyền quản trị để cài
+service. Setup sẽ cài .NET 8 Desktop Runtime nếu máy chưa có. Máy build cần
+truy cập Internet để tải các thành phần khi đóng gói.
+
+1. **Lấy mã nguồn và tạo cấu hình server** trên máy build:
+
+   ```powershell
+   git clone https://github.com/lehoangnb/remote_print.git
+   cd remote_print
+   Copy-Item server/.env.example server/.env
+   ```
+
+   Sửa `server/.env`: đặt `ADMIN_USERNAME`, `ADMIN_PASSWORD` riêng (ít nhất
+   12 ký tự), `JWT_SECRET` ngẫu nhiên (ít nhất 32 ký tự), và
+   `PUBLIC_SERVER_URL=https://print.example.com` thành địa chỉ HTTPS thực tế.
+   Thiết lập `TRUST_PROXY` đúng số proxy tin cậy nếu dùng reverse proxy; đặt
+   `MESH_PUBLIC_HOST` thành hostname UDP trỏ thẳng về server khi cần. Không đưa
+   file `.env` hoặc khóa bí mật lên Git.
+
+2. **Build setup và khởi động server** tại thư mục gốc. Dockerfile cần setup
+   được tạo trước khi build image:
+
+   ```powershell
+   .\scripts\publish-setup.ps1
+   docker compose up -d --build
+   docker compose logs -f remote-print-server
+   ```
+
+   Cấu hình reverse proxy HTTPS có hỗ trợ WebSocket tới TCP 7443, và cho phép
+   UDP 51821 tới server để discovery/STUN và kết nối trực tiếp. WSS relay vẫn
+   có thể hoạt động khi UDP bị chặn. Xem [Server Docker](#server-docker) cho
+   ví dụ cấu hình proxy, cổng và lưu trữ dữ liệu.
+
+3. **Tạo và phát hành gói client** trên máy build Windows:
+
+   ```powershell
+   .\scripts\publish-client.ps1 -Runtime win-x64
+   .\scripts\publish-client.ps1 -Runtime win-arm64
+   ```
+
+   Đăng nhập trang quản trị tại URL HTTPS, chọn **Cập nhật client**, rồi tải lên
+   và phát hành `dist/RemotePrint.Client-win-x64.zip` và/hoặc
+   `dist/RemotePrint.Client-win-arm64.zip` tương ứng với máy sử dụng. Phải phát
+   hành gói đúng kiến trúc trước khi setup có thể cài client.
+
+4. **Cài và ghép nối mỗi máy Windows**: tải **Tải bộ cài client** từ trang web,
+   chạy setup, xác nhận UAC và cài đặt. Trong trang quản trị, tạo mã mời 5 phút;
+   dán mã vào ô **Địa chỉ server** của client và lưu. Duyệt các máy tin cậy vào
+   ít nhất một Room chung, sau đó chọn máy in muốn chia sẻ trên máy sở hữu.
+
+5. **Kết nối và in**: trên máy gửi, chọn máy và máy in rồi bấm **Kết nối máy in**.
+   Chọn queue vừa tạo trong ứng dụng Windows và in. Có thể thử trước bằng
+   [máy in ảo](#máy-in-ảo-để-thử-giữa-các-client); kiểm tra máy nhận và máy in
+   thực tế để xác nhận kết quả đầu cuối.
+
+Hướng dẫn đầy đủ về cài thủ công, nâng cấp và gỡ bỏ nằm ở
+[Cài đặt và nâng cấp](#cài-đặt-và-nâng-cấp). Nếu đã có server và gói client
+được phát hành, người dùng chỉ cần thực hiện bước 4–5.
+
+## Cấu trúc dự án
+
+| Đường dẫn | Vai trò |
+| --- | --- |
+| `server/` | API, trang quản trị, discovery/STUN, relay và kiểm thử server. |
+| `client/RemotePrint.Client/` | Giao diện Windows và ứng dụng chạy nền. |
+| `client/RemotePrint.Service/` | Windows Service, máy in, tunnel và chuyển lệnh in. |
+| `client/RemotePrint.Core/`, `client/RemotePrint.Transport/` | Mô hình, IPC và giao thức kết nối. |
+| `client/RemotePrint.Setup/` | Bộ cài tải gói client từ server. |
+| `client/RemotePrint.Checks/`, `client/RemotePrint.Transport.Checks/` | Các chương trình kiểm thử client và transport. |
+| `scripts/` | Script build, đóng gói và chẩn đoán. |
+| `docs/` | Tài liệu bổ sung, gồm cấu hình tunnel cũ. |
+
 ## Ngôn ngữ
 
 Chọn Tiếng Việt hoặc English trên trang quản trị hoặc trong menu Language / Ngôn ngữ của client. Lựa chọn được lưu riêng cho từng trình duyệt và tài khoản Windows; giao diện cập nhật ngay khi đổi ngôn ngữ. Các bản dịch nằm chung trong `server/public/translations.json`; file này được đóng gói cùng client và server. Tên máy, máy in và nội dung chi tiết do hệ điều hành hoặc dịch vụ bên ngoài trả về giữ nguyên nội dung gốc.
@@ -441,3 +557,19 @@ không gửi lệnh ra máy in vật lý trong bài kiểm thử này.
 **Chưa xác nhận cài driver và in đầu cuối giữa hai máy Windows thật** với cơ chế
 RAW mới. Cần kiểm tra chữ ký/cài gói OEM, port monitor Windows, firewall và giấy
 in thực tế trên từng dòng máy in. Build và kiểm thử relay không thay thế bước đó.
+
+## Giấy phép
+
+Mã nguồn Remote Print được phát hành theo [giấy phép MIT](LICENSE). Các thư viện,
+công cụ và thành phần bên thứ ba có giấy phép riêng; việc sử dụng hoặc phân phối
+chúng phải tuân theo giấy phép tương ứng.
+
+## Ghi công
+
+- **Tác giả:** Le Hoang ([lehoangnb](https://github.com/lehoangnb)); cảm ơn
+  những người đóng góp, báo lỗi và kiểm thử dự án.
+- [WireGuard](https://www.wireguard.com/) cung cấp công nghệ tunnel được sử dụng
+  cho kết nối mã hóa. Gói client tải bộ cài WireGuard chính thức khi build.
+- Cảm ơn cộng đồng [Node.js](https://nodejs.org/), [Express](https://expressjs.com/)
+  và [Microsoft .NET](https://dotnet.microsoft.com/), cùng các tác giả thư viện
+  được liệt kê trong `server/package.json` và `server/package-lock.json`.
