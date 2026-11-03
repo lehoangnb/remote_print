@@ -191,7 +191,7 @@ Trang quản trị có nút **Cập nhật client** để tải và phát hành 
 Windows x64 hoặc ARM64. Chọn đúng kiến trúc, gói ZIP,
 ghi chú rồi bấm **Tải lên và phát hành**. Server tự đọc phiên bản từ
 `build-info.json` trong ZIP, không cần nhập phiên bản. Chỉ quản trị viên đã đăng nhập được
-phát hành; bản mới phải có phiên bản lớn hơn bản hiện tại của cùng kiến trúc.
+phát hành; có thể tải đè gói của cùng phiên bản, nhưng không thể hạ phiên bản.
 
 Mọi request API của client đều gửi `x-client-version` và `x-client-runtime`.
 Khi phiên bản đã phát hành cho đúng kiến trúc mới hơn client, server gửi lệnh
@@ -246,8 +246,12 @@ Tải file `dist/RemotePrint.Client-win-x64.zip` hoặc
 Phiên bản có 3 hoặc 4 phần số, mỗi phần từ 0 tới 65534.
 
 Gói/metadata được lưu bền vững tại `DATA_DIR/client-updates` trong volume dữ
-liệu của server. Server giữ các gói trước để lượt tải đang chạy không bị gián
-đoạn; không tự dọn lịch sử gói. API tải gói là công khai, chỉ chứa file phát
+liệu của server. Server chỉ giữ một gói đang phát hành cho mỗi kiến trúc (x64 và
+ARM64), tự xóa ZIP cũ sau khi phát hành bản thay thế và dọn ZIP tồn từ phiên
+bản server cũ ngay lúc khởi động. Lượt tải đang diễn ra được hoàn tất trước khi
+xóa file; đường dẫn gói cũ không nhận lượt tải mới. Tải đè cùng phiên bản chỉ
+thay thế gói trên server; client đã chạy đúng số phiên bản đó sẽ không tự cập
+nhật lại. API tải gói là công khai, chỉ chứa file phát
 hành, không đóng gói `.env`, khóa hay cấu hình máy vào gói client.
 Reverse proxy cần cho phép upload ZIP tới 256 MiB và thời gian tải phù hợp.
 Client dùng HTTPS của server đã cấu hình (HTTP chỉ được phép với loopback để

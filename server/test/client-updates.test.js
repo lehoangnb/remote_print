@@ -33,7 +33,7 @@ function packageZip(version = '1.2.0', runtime = 'win-x64', manifestOverrides = 
   return Buffer.concat([...locals, directory, end]);
 }
 
-test('client release upload, validation, immutable download and restart persistence', async t => {
+test('client release upload, same-version replacement, old-package cleanup and restart persistence', async t => {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'rp-updates-'));
   t.after(() => fs.rm(dataDir, { recursive: true, force: true }));
   const audit = [];
@@ -93,20 +93,36 @@ test('client release upload, validation, immutable download and restart persiste
   assert.deepEqual(await (await fetch(base + '/api/client/updates/win-x64')).json(), release);
   assert.match((await fetch(base + '/api/client/updates/win-x64')).headers.get('cache-control'), /no-store/);
   assert.deepEqual(Buffer.from(await (await fetch(base + release.downloadPath)).arrayBuffer()), bytes);
-  assert.equal((await upload(bytes)).status, 409);
+  const identical = await upload(bytes);
+  assert.equal(identical.status, 200, 'Identical version and ZIP may be uploaded again');
+  assert.equal((await identical.json()).sha256, release.sha256);
+  const revisedBytes = packageZip('1.2.0', 'win-x64', { files: { revision: 'hotfix' } });
+  const revisedUpload = await upload(revisedBytes);
+  assert.equal(revisedUpload.status, 200, 'A changed ZIP with the same version replaces the release');
+  const revised = await revisedUpload.json();
+  assert.notEqual(revised.sha256, release.sha256);
+  assert.deepEqual(Buffer.from(await (await fetch(base + revised.downloadPath)).arrayBuffer()), revisedBytes);
+  assert.equal((await fetch(base + release.downloadPath)).status, 404, 'Retired ZIP is no longer downloadable');
+  await assert.rejects(fs.stat(path.join(dataDir, 'client-updates', `${release.sha256}.zip`)), { code: 'ENOENT' });
+  assert.equal(updateCommand(await fetch(base + '/api/client/status', { headers: clientHeaders })).sha256, revised.sha256);
   assert.equal((await upload(packageZip('1.1.9'))).status, 409);
   assert.equal((await upload(packageZip('1.1.9'), 'win-x64', headers, '&version=99.0.0')).status, 409, 'Claiming a newer version cannot bypass the version in the ZIP');
   assert.equal((await upload(Buffer.from('truncated'))).status, 400);
   assert.equal((await (await fetch(base + '/api/client/updates/win-x64')).json()).version, '1.2.0');
   const nextRelease = await upload(packageZip('1.3.0'), 'win-x64', headers, '&version=9.9.9', 'a'.repeat(4000));
   assert.equal(nextRelease.status, 201);
-  assert.equal((await nextRelease.json()).version, '1.3.0', 'Request version cannot replace the ZIP version');
+  const newest = await nextRelease.json();
+  assert.equal(newest.version, '1.3.0', 'Request version cannot replace the ZIP version');
   const longNotesResponse = await fetch(base + '/api/client/status', { headers: clientHeaders });
   assert.ok(longNotesResponse.headers.get('x-client-update').length < 2048, 'Maximum-length release notes never inflate command headers');
   assert.equal(updateCommand(longNotesResponse).notes, '');
-  assert.deepEqual(Buffer.from(await (await fetch(base + release.downloadPath)).arrayBuffer()), bytes, 'in-flight old release remains downloadable');
+  assert.equal((await fetch(base + revised.downloadPath)).status, 404, 'A superseded release is removed');
+  await assert.rejects(fs.stat(path.join(dataDir, 'client-updates', `${revised.sha256}.zip`)), { code: 'ENOENT' });
   assert.equal((await upload(packageZip('1.2.0', 'win-arm64'), 'win-arm64')).status, 201);
+  const oldOrphan = path.join(dataDir, 'client-updates', `${'a'.repeat(64)}.zip`);
+  await fs.writeFile(oldOrphan, 'legacy package');
   base = await start();
+  await assert.rejects(fs.stat(oldOrphan), { code: 'ENOENT' }, 'Legacy unreferenced packages are removed on server startup');
   assert.equal(updateCommand(await fetch(base + '/api/client/status', { headers: clientHeaders })).version, '1.3.0', 'Commands use the persisted newest release after server restart');
   const arm = await fetch(base + '/api/client/status', { headers: { ...clientHeaders, 'x-client-runtime': 'win-arm64' } });
   assert.equal(updateCommand(arm).runtime, 'win-arm64');
@@ -116,8 +132,12 @@ test('client release upload, validation, immutable download and restart persiste
   assert.equal((await fetch(base + '/api/client/updates/packages/missing.zip')).status, 404);
   const files = await fs.readdir(path.join(dataDir, 'client-updates'));
   assert.equal(files.some(file => file.endsWith('.upload') || file.endsWith('.tmp')), false);
+  assert.equal(files.filter(file => file.endsWith('.zip')).length, 2, 'Only one ZIP per architecture is retained');
+  assert.equal(files.includes(`${newest.sha256}.zip`), true);
   await fs.writeFile(path.join(dataDir, 'client-updates', 'win-x64.json'), '{damaged');
   const damagedManifest = await fetch(base + '/api/client/status', { headers: clientHeaders });
   assert.equal(damagedManifest.status, 200, 'A damaged release manifest does not interrupt ordinary API traffic');
   assert.equal(damagedManifest.headers.get('x-client-update'), null);
+  assert.equal((await fetch(base + `/api/client/updates/packages/${persisted[1].sha256}.zip`)).status, 200,
+    'A damaged x64 manifest does not prevent downloading the valid ARM64 release');
 });

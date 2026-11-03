@@ -117,7 +117,7 @@ const errorMessages = () => ({
   SERVER_ERROR: t("Server gặp lỗi. Hãy thử lại hoặc kiểm tra nhật ký server."),
   INVALID_UPDATE_METADATA: t("Thông tin cập nhật không hợp lệ."),
   INVALID_UPDATE_PACKAGE: t("Gói cập nhật không hợp lệ hoặc không khớp phiên bản/kiến trúc."),
-  UPDATE_VERSION_MUST_INCREASE: t("Phiên bản phải lớn hơn bản đã phát hành."),
+  UPDATE_VERSION_MUST_NOT_DECREASE: t("Phiên bản không được thấp hơn bản đã phát hành."),
   UPDATE_UPLOAD_BUSY: t("Đang có gói khác được tải lên. Hãy thử lại."),
   UPDATE_TOO_LARGE: t("Gói cập nhật vượt quá 256 MiB.")
 });

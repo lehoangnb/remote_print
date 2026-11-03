@@ -62,11 +62,46 @@ export function attachClientUpdates(app, { dataDir, adminAuth, audit }) {
   const root = path.resolve(dataDir, 'client-updates');
   fs.mkdirSync(root, { recursive: true });
   const busy = new Set();
+  const pendingPackages = new Set();
+  const activeDownloads = new Map();
+  const deferredDeletes = new Set();
   const manifestPath = runtime => path.join(root, `${runtime}.json`);
   const latest = runtime => {
     try { return JSON.parse(fs.readFileSync(manifestPath(runtime), 'utf8')); }
     catch (e) { if (e.code === 'ENOENT') return null; throw e; }
   };
+  const currentPackages = (skipDamaged = false) => {
+    const names = new Set();
+    for (const runtime of runtimes) {
+      try {
+        const release = latest(runtime);
+        if (!release) continue;
+        if (release.runtime !== runtime || !/^[a-f0-9]{64}$/.test(release.sha256))
+          throw new Error(`Invalid client update manifest for ${runtime}`);
+        names.add(`${release.sha256}.zip`);
+      } catch (e) { if (!skipDamaged) throw e; }
+    }
+    return names;
+  };
+  const cleanupOldPackages = () => {
+    // Keep the current ZIP for each Windows architecture. Protect packages being
+    // published or downloaded while the other architecture is updated.
+    let keep;
+    try { keep = currentPackages(); }
+    catch (e) { console.warn('Skipping client update cleanup:', e); return; }
+    let files;
+    try { files = fs.readdirSync(root); }
+    catch (e) { console.warn('Could not list client update packages for cleanup:', e); return; }
+    for (const name of files) {
+      if (!/^[a-f0-9]{64}\.zip$/.test(name)) continue;
+      if (keep.has(name) || pendingPackages.has(name)) { deferredDeletes.delete(name); continue; }
+      if (activeDownloads.has(name)) { deferredDeletes.add(name); continue; }
+      try { fs.unlinkSync(path.join(root, name)); deferredDeletes.delete(name); }
+      catch (e) { console.warn(`Could not delete obsolete client update ${name}:`, e); }
+    }
+  };
+  // Also remove packages left by earlier server versions on the first startup.
+  cleanupOldPackages();
   app.use('/api/client', (req, res, next) => {
     const version = req.header('x-client-version'), runtime = req.header('x-client-runtime');
     if (validVersion(version) && runtimes.has(runtime)) {
@@ -91,7 +126,7 @@ export function attachClientUpdates(app, { dataDir, adminAuth, audit }) {
     if (busy.has(runtime)) return res.status(409).json({ error: 'UPDATE_UPLOAD_BUSY' });
     busy.add(runtime);
     const temp = path.join(root, `${randomUUID()}.upload`);
-    let metaTemp;
+    let metaTemp, packageName;
     try {
       const previous = latest(runtime);
       let size = 0;
@@ -102,15 +137,25 @@ export function attachClientUpdates(app, { dataDir, adminAuth, audit }) {
         hash.update(chunk); callback(null, chunk);
       } }), fs.createWriteStream(temp, { flags: 'wx' }));
       const version = await inspectPackage(temp, size, runtime);
-      if (previous && compare(version, previous.version) <= 0) throw invalid('UPDATE_VERSION_MUST_INCREASE', 409);
+      if (previous && compare(version, previous.version) < 0) throw invalid('UPDATE_VERSION_MUST_NOT_DECREASE', 409);
       const sha256 = hash.digest('hex');
       const release = { version, runtime, notes, size, sha256, publishedAt: new Date().toISOString(), downloadPath: `/api/client/updates/packages/${sha256}.zip` };
-      await fs.promises.rename(temp, path.join(root, `${sha256}.zip`));
+      packageName = `${sha256}.zip`;
+      pendingPackages.add(packageName);
+      // Re-uploading identical bytes only refreshes the release metadata.
+      // Re-uploading a changed ZIP with the same version replaces the old hash.
+      try { await fs.promises.access(path.join(root, packageName)); }
+      catch (e) {
+        if (e.code !== 'ENOENT') throw e;
+        await fs.promises.rename(temp, path.join(root, packageName));
+      }
       metaTemp = path.join(root, `${randomUUID()}.json.tmp`);
       await fs.promises.writeFile(metaTemp, JSON.stringify(release), { flag: 'wx' });
       await fs.promises.rename(metaTemp, manifestPath(runtime));
+      pendingPackages.delete(packageName);
+      cleanupOldPackages();
       audit('client_update_published', { version, runtime, sha256 });
-      res.status(201).json(release);
+      res.status(previous && compare(version, previous.version) === 0 ? 200 : 201).json(release);
     } catch (e) {
       if (e.status && !res.headersSent && !res.destroyed) res.status(e.status).json({ error: e.message });
       else if (!e.status) next(e);
@@ -118,6 +163,8 @@ export function attachClientUpdates(app, { dataDir, adminAuth, audit }) {
       busy.delete(runtime);
       await fs.promises.rm(temp, { force: true });
       if (metaTemp) await fs.promises.rm(metaTemp, { force: true });
+      if (packageName) pendingPackages.delete(packageName);
+      cleanupOldPackages();
     }
   });
   // These contain public release binaries only, never device keys or configuration.
@@ -129,6 +176,23 @@ export function attachClientUpdates(app, { dataDir, adminAuth, audit }) {
   });
   app.get('/api/client/updates/packages/:name', (req, res) => {
     if (!/^[a-f0-9]{64}\.zip$/.test(req.params.name)) return res.sendStatus(404);
+    // Retired packages are no longer offered to new download requests.
+    let current;
+    current = currentPackages(true);
+    if (!current.has(req.params.name)) return res.sendStatus(404);
+    activeDownloads.set(req.params.name, (activeDownloads.get(req.params.name) || 0) + 1);
+    let released = false;
+    const releaseDownload = () => {
+      if (released) return;
+      released = true;
+      const count = activeDownloads.get(req.params.name);
+      if (count === 1) {
+        activeDownloads.delete(req.params.name);
+        if (deferredDeletes.has(req.params.name)) cleanupOldPackages();
+      } else activeDownloads.set(req.params.name, count - 1);
+    };
+    res.once('finish', releaseDownload);
+    res.once('close', releaseDownload);
     res.sendFile(path.join(root, req.params.name), { headers: { 'Cache-Control': 'public, max-age=31536000, immutable', 'Content-Type': 'application/zip' } }, err => {
       if (err && !res.headersSent) res.sendStatus(err.statusCode === 404 ? 404 : 500);
     });
