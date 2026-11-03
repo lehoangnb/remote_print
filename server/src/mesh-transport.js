@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { roomsFor, shareRoom } from './rooms.js';
 import dgram from 'node:dgram';
 import net from 'node:net';
+import dns from 'node:dns/promises';
 import { WebSocketServer, WebSocket } from 'ws';
 
 const maxQueue = 1024 * 1024;
@@ -20,12 +21,39 @@ function privateIp(ip) {
   return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
 }
 
-export function attachMeshTransport(server, store, { udpPort = 51821, udpHost = '0.0.0.0', leaseMs = 15000 } = {}) {
+// Hairpin NAT can rewrite a LAN client's source to the router's private IP.
+// Keep that observation, but also try the origin's public IP at the observed
+// port. It is only a candidate: clients still require a fresh authenticated ACK.
+export function discoveryCandidates(endpoint, lan, publicAddresses = [], reflexive = []) {
+  const split = endpoint?.lastIndexOf(':');
+  const address = endpoint && endpoint.slice(0, split);
+  const port = endpoint && endpoint.slice(split + 1);
+  const publicCandidates = address && privateIp(address)
+    ? publicAddresses.map(ip => `${ip}:${port}`) : [];
+  return [...new Set([...reflexive, ...(endpoint ? [endpoint] : []), ...publicCandidates, ...lan])].slice(0, 17);
+}
+function publicEndpoint(value) {
+  if (typeof value !== 'string' || value.length > 21) return false;
+  const [ip, port, extra] = value.split(':');
+  return extra === undefined && net.isIP(ip) === 4 && !privateIp(ip) && !ip.startsWith('127.') &&
+    Number(ip.split('.')[0]) > 0 && Number(ip.split('.')[0]) < 224 && /^\d{1,5}$/u.test(port) && Number(port) > 0 && Number(port) <= 65535;
+}
+
+export function attachMeshTransport(server, store, { udpPort = 51821, udpHost = '0.0.0.0', leaseMs = 15000, publicHost = '' } = {}) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 4096, perMessageDeflate: false });
   const udp = dgram.createSocket('udp4');
   const sessions = new Map(), cookies = new Map(), pairs = new Map(), upgrades = new Map();
   let closed = false;
-  const stats = { relayedBytes: 0, droppedPackets: 0 };
+  let publicAddresses = [];
+  async function resolvePublicHost() {
+    if (!publicHost) return;
+    try {
+      const ips = net.isIP(publicHost) === 4 ? [publicHost] : (await dns.lookup(publicHost, { family: 4, all: true })).map(a => a.address);
+      if (!closed) publicAddresses = [...new Set(ips)].filter(ip => !privateIp(ip) && !ip.startsWith('127.') && ip !== '0.0.0.0').slice(0, 4);
+    } catch { /* Keep the last usable origin addresses during a DNS outage. */ }
+  }
+  void resolvePublicHost();
+  const stats = { relayedBytes: 0, droppedPackets: 0, udpReceived: 0, udpAccepted: 0 };
   function valid(s) {
     // Store mutates this enrollment object in place on approval/rejection/key
     // rotation. Avoid an O(client-count) scan on every datagram.
@@ -49,12 +77,13 @@ export function attachMeshTransport(server, store, { udpPort = 51821, udpHost = 
       const pairId = [s.session, p.session].sort().join(':');
       if (!pairs.has(pairId)) pairs.set(pairId, crypto.randomBytes(32).toString('hex'));
       peers.push({ id: p.id, address: p.address, publicKey: p.key, token: pairs.get(pairId),
-        endpoints: [...new Set([...(p.endpoint ? [p.endpoint] : []), ...p.lan])] });
+        endpoints: discoveryCandidates(p.endpoint, p.lan, publicAddresses, p.reflexive) });
     }
     return peers.sort((a, b) => a.id.localeCompare(b.id));
   }
   function publish(s) {
-    send(s, { type: 'state', address: s.address, cookie: s.cookie, leaseMs, peers: view(s) });
+    send(s, { type: 'state', address: s.address, cookie: s.cookie, leaseMs,
+      observedEndpoint: s.endpoint, peers: view(s) });
   }
   function reconcile() {
     for (const s of sessions.values()) {
@@ -85,7 +114,7 @@ export function attachMeshTransport(server, store, { udpPort = 51821, udpHost = 
         sessions.get(c.id)?.ws.terminate();
         const s = { id: c.id, client: c, key: c.tunnelPublicKey, address: c.tunnelAddress, membership: JSON.stringify(roomsFor(c)), ws,
           cookie: crypto.randomBytes(32).toString('hex'), session: crypto.randomUUID(), seen: performance.now(),
-          lan: [], endpoint: null, budgetAt: Date.now(), budget: 8 * 1024 * 1024, controls: 0 };
+          lan: [], reflexive: [], endpoint: null, budgetAt: Date.now(), budget: 8 * 1024 * 1024, controls: 0 };
         sessions.set(s.id, s); cookies.set(s.cookie, s);
         ws.on('error', () => {});
         ws.on('close', () => { if (sessions.get(s.id) === s) sessions.delete(s.id); cookies.delete(s.cookie); });
@@ -108,10 +137,11 @@ export function attachMeshTransport(server, store, { udpPort = 51821, udpHost = 
             try {
               const m = JSON.parse(data.toString());
               if (m.type !== 'ping' || !Array.isArray(m.lan) || m.lan.length > 16 ||
-                  !Number.isInteger(m.port) || m.port < 1024 || m.port > 65535 || !m.lan.every(privateIp)) {
+                  !Number.isInteger(m.port) || m.port < 1024 || m.port > 65535 || !m.lan.every(privateIp) ||
+                  (m.publicEndpoints !== undefined && (!Array.isArray(m.publicEndpoints) || m.publicEndpoints.length > 4 || !m.publicEndpoints.every(publicEndpoint)))) {
                 ws.close(1008, 'Invalid control'); return;
               }
-              s.lan = m.lan.map(ip => `${ip}:${m.port}`); s.seen = performance.now();
+              s.lan = m.lan.map(ip => `${ip}:${m.port}`); s.reflexive = [...new Set(m.publicEndpoints ?? [])]; s.seen = performance.now();
             } catch { ws.close(1008, 'Invalid JSON'); }
           }
         });
@@ -122,10 +152,11 @@ export function attachMeshTransport(server, store, { udpPort = 51821, udpHost = 
   // No UDP replies: observed endpoints are sent over the authenticated WS. An
   // untrusted UDP packet cannot turn the discovery service into an amplifier.
   udp.on('message', (data, remote) => {
+    stats.udpReceived++;
     if (data.length !== 68 || data.subarray(0, 4).toString() !== 'RPM1') return;
     const s = cookies.get(data.subarray(4).toString('ascii'));
     if (!s || !valid(s) || (s.reflectedAt && Date.now() - s.reflectedAt < 1000)) return;
-    s.endpoint = `${remote.address}:${remote.port}`; s.reflectedAt = Date.now();
+    s.endpoint = `${remote.address}:${remote.port}`; s.reflectedAt = Date.now(); stats.udpAccepted++;
   });
   udp.on('error', error => { console.error(`Mesh discovery UDP error: ${error.message}`); });
   udp.bind(udpPort, udpHost);
@@ -134,8 +165,17 @@ export function attachMeshTransport(server, store, { udpPort = 51821, udpHost = 
     for (const [ip, entry] of upgrades) if (Date.now() - entry.start > 60000) upgrades.delete(ip);
   }, 2000);
   timer.unref();
-  return { stats, udp, status() { return { activeClients: [...sessions.values()].filter(valid).length, ...stats }; }, close() {
-    if (closed) return; closed = true; clearInterval(timer);
+  const dnsTimer = setInterval(() => { void resolvePublicHost(); }, 30000);
+  dnsTimer.unref();
+  return { stats, udp, status() {
+    const active = [...sessions.values()].filter(valid);
+    return { activeClients: active.length, ...stats, publicAddresses, clients: active.map(s => ({
+      id: s.id, name: s.client.name, observedEndpoint: s.endpoint,
+      discoveryAgeMs: s.reflectedAt ? Date.now() - s.reflectedAt : null,
+      lanEndpoints: s.lan, publicEndpoints: s.reflexive, peers: view(s).map(p => ({ id: p.id, endpoints: p.endpoints }))
+    })) };
+  }, close() {
+    if (closed) return; closed = true; clearInterval(timer); clearInterval(dnsTimer);
     for (const s of sessions.values()) s.ws.terminate();
     wss.close(); udp.close();
   } };

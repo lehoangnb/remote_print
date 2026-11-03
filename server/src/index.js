@@ -29,8 +29,12 @@ const tunnelEndpoint = process.env.TUNNEL_ENDPOINT || '';
 const tunnelServerKey = process.env.TUNNEL_SERVER_PUBLIC_KEY || '';
 const tunnelMode = process.env.TUNNEL_MODE || 'mesh';
 const meshUdpPort = Number(process.env.MESH_UDP_PORT || 51821);
+const meshStunHost = process.env.MESH_STUN_HOST ?? 'stun.cloudflare.com';
+const meshStunPort = Number(process.env.MESH_STUN_PORT || 3478);
 if (!['mesh', 'legacy', 'off'].includes(tunnelMode) || !Number.isInteger(meshUdpPort) || meshUdpPort < 1 || meshUdpPort > 65535)
   throw new Error('Invalid tunnel mode or mesh UDP port');
+if (!Number.isInteger(meshStunPort) || meshStunPort < 1 || meshStunPort > 65535 || typeof meshStunHost !== 'string' ||
+    meshStunHost.length > 253 || (meshStunHost && !/^[a-z0-9.-]+$/iu.test(meshStunHost))) throw new Error('Invalid mesh STUN configuration');
 
 function validTunnelEndpoint(value) {
   if (typeof value !== 'string' || value.length > 260) return false;
@@ -159,6 +163,7 @@ function tunnelResponse(client) {
     enrolledPublicKey: client.tunnelPublicKey, endpoint: tunnelMode === 'mesh' ? '' : tunnelEndpoint,
     serverPublicKey: tunnelMode === 'mesh' ? '' : tunnelServerKey,
     udpPort: meshUdpPort, udpHost: process.env.MESH_PUBLIC_HOST || '',
+    stunHost: meshStunHost, stunPort: meshStunPort,
     peers: tunnelMode === 'mesh' ? [] : store.tunnelPeersFor(client) };
 }
 app.put('/api/client/tunnel', clientAuth, approved, (req, res) => {
@@ -232,7 +237,7 @@ const server = certPath && keyPath
   ? https.createServer({ cert: fs.readFileSync(certPath), key: fs.readFileSync(keyPath) }, app)
   : http.createServer(app);
 if (tunnelMode === 'mesh') {
-  const mesh = attachMeshTransport(server, store, { udpPort: meshUdpPort });
+  const mesh = attachMeshTransport(server, store, { udpPort: meshUdpPort, publicHost: process.env.MESH_PUBLIC_HOST || '' });
   app.get('/api/admin/mesh', adminAuth, (_req, res) => res.json(mesh.status()));
 }
 

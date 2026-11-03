@@ -94,6 +94,29 @@ Lease điều khiển hết hạn tối đa 15 giây; quyền được kiểm tr
 và trước khi đưa vào spooler. Máy bị đổi Room/từ chối hoặc máy in bị bỏ chọn không
 được nhận lệnh mới. Lệnh đã được Windows spooler chấp nhận có thể tiếp tục in.
 
+Client tự thử lại DNS discovery khi lỗi và làm mới địa chỉ định kỳ; đổi
+`MESH_PUBLIC_HOST`/cổng UDP trên server được áp dụng khi client poll cấu hình.
+Với client ở cùng LAN với server, NAT loopback có thể làm discovery nhìn thấy
+IP riêng của router. Server bổ sung candidate từ IP public của
+`MESH_PUBLIC_HOST`. Client mới ưu tiên địa chỉ WAN lấy bằng STUN trên chính
+socket mesh, vì WAN của client có thể khác WAN server (nhiều đường Internet/VPN).
+Mặc định dùng `stun.cloudflare.com:3478`; đổi bằng `MESH_STUN_HOST` và
+`MESH_STUN_PORT` trên server, hoặc đặt `MESH_STUN_HOST` rỗng để tắt STUN.
+STUN chỉ trao đổi IP/cổng và transaction ID, không gửi khóa hay dữ liệu in.
+Client chỉ dùng candidate khi nhận ACK xác thực, đồng thời thử lại
+cổng nguồn thực của peer nếu NAT đổi cổng theo đích. Firewall Windows giới hạn
+UDP trực tiếp theo chương trình service, cổng đang dùng và IP các peer được
+cấp quyền; quy tắc bị gỡ khi ngắt mesh/thu hồi quyền. NAT chặn cả hai chiều vẫn
+cần relay.
+
+API admin `GET /api/admin/mesh` cho biết endpoint quan sát được, tuổi discovery
+và candidate từng client; không trả cookie/token. Snapshot IPC `status` có
+`meshDiagnostics` với DNS, bộ đếm gửi discovery/probe và ACK, giúp phân biệt
+UDP server hoạt động với kết nối trực tiếp đã được xác thực. Các bộ đếm byte
+WireGuard direct/relay cho phép kiểm tra dữ liệu thực đi trên đường nào.
+Đọc chẩn đoán trên tài khoản Windows đã ghép nối bằng
+`./scripts/Get-MeshDiagnostics.ps1` (chỉ đọc, không restart service).
+
 ## Cài đặt và nâng cấp
 
 Máy mới có thể dùng **RemotePrint.Setup.exe** (bộ cài nhỏ, không kèm client/runtime).

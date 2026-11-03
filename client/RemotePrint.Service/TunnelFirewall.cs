@@ -11,6 +11,8 @@ public sealed class TunnelFirewall(string tunnelName)
     private string RuleName => "Remote Print tunnel " + tunnelName;
     private const string Marker = "RemotePrint managed tunnel firewall rule v1";
     private string? _lastSpec;
+    private string? _lastDirectSpec;
+    private string DirectRuleName => RuleName + " Direct UDP";
     private readonly string[] _meshSuffixes = [" SMB", " RPC mapper", " Spooler", " Native relay", " Other TCP", " UDP", " ICMP"];
 
     public void ApplyMesh(string localAddress, IEnumerable<string> peers)
@@ -53,12 +55,36 @@ public sealed class TunnelFirewall(string tunnelName)
 
     public static string NativeBlockedTcpPorts => $"1-{NativePrintProtocol.Port - 1},{NativePrintProtocol.Port + 1}-65535";
 
+    public void ApplyDirect(int port, IEnumerable<string> peerAddresses)
+    {
+        if (port is < 1024 or > 65535) throw new InvalidDataException("Cổng direct UDP không hợp lệ.");
+        var addresses = peerAddresses.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        if (addresses.Any(a => !System.Net.IPAddress.TryParse(a, out var ip) ||
+            ip.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork || System.Net.IPAddress.IsLoopback(ip) ||
+            WireGuardConfig.ValidAddress(a))) throw new InvalidDataException("Địa chỉ direct UDP không hợp lệ.");
+        var spec = port + ":" + string.Join(',', addresses);
+        if (_lastDirectSpec == spec) return;
+        dynamic policy = Activator.CreateInstance(Type.GetTypeFromProgID("HNetCfg.FwPolicy2")!)!;
+        RemoveOwnedRule(policy, DirectRuleName);
+        if (addresses.Length > 0)
+        {
+            dynamic rule = Activator.CreateInstance(Type.GetTypeFromProgID("HNetCfg.FWRule")!)!;
+            rule.Name = DirectRuleName; rule.Description = Marker; rule.Protocol = 17;
+            rule.LocalPorts = port.ToString(); rule.RemoteAddresses = string.Join(',', addresses);
+            rule.ApplicationName = Environment.ProcessPath; rule.Direction = 1; rule.Action = 1;
+            rule.Profiles = 7; rule.Enabled = true; policy.Rules.Add(rule);
+        }
+        _lastDirectSpec = spec;
+    }
+
     public void Remove()
     {
         dynamic policy = Activator.CreateInstance(Type.GetTypeFromProgID("HNetCfg.FwPolicy2")!)!;
         RemoveOwnedRule(policy);
+        RemoveOwnedRule(policy, DirectRuleName);
         foreach (var suffix in _meshSuffixes) RemoveOwnedRule(policy, RuleName + suffix);
         _lastSpec = null;
+        _lastDirectSpec = null;
     }
 
     private void RemoveOwnedRule(dynamic policy, string? name = null)

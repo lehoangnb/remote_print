@@ -12,7 +12,7 @@ using System.Text.Json;
 namespace RemotePrint.Service;
 
 public sealed record MeshTransportIdentity(string ServerUrl, string DeviceId, string DeviceSecret);
-public sealed record MeshTransportOptions(string Address, string UdpHost, int UdpPort);
+public sealed record MeshTransportOptions(string Address, string UdpHost, int UdpPort, string StunHost = "", int StunPort = 3478);
 
 public sealed class MeshPeerState
 {
@@ -28,9 +28,16 @@ public sealed class MeshState
     public string Address { get; set; } = "";
     public string Cookie { get; set; } = "";
     public int LeaseMs { get; set; }
+    public string? ObservedEndpoint { get; set; }
     public List<MeshPeerState> Peers { get; set; } = [];
 }
 public sealed record MeshBinding(string Id, string Address, string PublicKey, int Port, string Path);
+public sealed record MeshPeerDiagnostics(string Id, string[] Candidates, string? DirectEndpoint,
+    long ProbesSent, long ProbesReceived, long AcksReceived, long DirectBytesSent, long DirectBytesReceived,
+    long RelayBytesSent, long RelayBytesReceived);
+public sealed record MeshTransportDiagnostics(int LocalUdpPort, string DiscoveryHost, string[] DiscoveryEndpoints,
+    string? ObservedEndpoint, string? DnsError, string? UdpError, long DiscoverySent, long AuthenticationRejected,
+    string StunServer, string[] PublicEndpoints, MeshPeerDiagnostics[] Peers);
 
 // WireGuard performs all data encryption/authentication. This bridge only moves
 // its already-encrypted UDP packets, using authenticated probes to select a path.
@@ -50,14 +57,19 @@ public sealed class MeshTransport : IAsyncDisposable
         }
         public IPEndPoint? WireGuard;
         public IPEndPoint? Direct;
+        public IPEndPoint? Reflexive;
+        public long ReflexiveProbeAt;
         public long LastAck;
         public byte[]? Challenge;
         public long ChallengeAt;
         public double ProbeRtt;
+        public long ProbesSent, ProbesReceived, AcksReceived;
+        public long DirectBytesSent, DirectBytesReceived, RelayBytesSent, RelayBytesReceived;
         public void Dispose() => Local.Dispose();
     }
     private readonly MeshTransportIdentity _config;
     private readonly MeshTransportOptions _info;
+    private readonly Func<string, CancellationToken, Task<IPAddress[]>> _resolve;
     private readonly CancellationTokenSource _stop = new();
     private readonly UdpClient _udp = new(new IPEndPoint(IPAddress.Any, 0));
     private readonly ConcurrentDictionary<string, Peer> _peers = new(StringComparer.Ordinal);
@@ -68,19 +80,42 @@ public sealed class MeshTransport : IAsyncDisposable
     private long _leaseAt;
     private int _leaseMs;
     private string _cookie = "";
+    private IPEndPoint[] _discoveryEndpoints = [];
+    private string? _observedEndpoint, _dnsError, _udpError;
+    private long _discoverySent, _authenticationRejected;
+    private sealed record StunPending(byte[] Request, IPEndPoint Server, long At);
+    private readonly ConcurrentDictionary<string, StunPending> _stunRequests = new();
+    private readonly ConcurrentDictionary<string, long> _publicEndpoints = new();
     private int _wireGuardPort;
     private int _trafficEnabled = 1;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     public string? Error { get; private set; }
     public int LocalUdpPort => ((IPEndPoint)_udp.Client.LocalEndPoint!).Port;
     public bool ForceRelay { get; set; }
+    private string DiscoveryHost => string.IsNullOrEmpty(_info.UdpHost) ? new Uri(_config.ServerUrl).DnsSafeHost : _info.UdpHost;
+    public MeshTransportDiagnostics Diagnostics => new(LocalUdpPort, DiscoveryHost,
+        Volatile.Read(ref _discoveryEndpoints).Select(e => e.ToString()).ToArray(), _observedEndpoint,
+        _dnsError, _udpError, Interlocked.Read(ref _discoverySent), Interlocked.Read(ref _authenticationRejected),
+        string.IsNullOrEmpty(_info.StunHost) ? "" : $"{_info.StunHost}:{_info.StunPort}", PublicEndpoints,
+        _peers.Values.Select(p => new MeshPeerDiagnostics(p.State.Id, p.State.Endpoints.ToArray(), p.Direct?.ToString(),
+            Interlocked.Read(ref p.ProbesSent), Interlocked.Read(ref p.ProbesReceived), Interlocked.Read(ref p.AcksReceived),
+            Interlocked.Read(ref p.DirectBytesSent), Interlocked.Read(ref p.DirectBytesReceived),
+            Interlocked.Read(ref p.RelayBytesSent), Interlocked.Read(ref p.RelayBytesReceived))).ToArray());
+    private string[] PublicEndpoints => _publicEndpoints.Where(p => Stopwatch.GetElapsedTime(p.Value).TotalSeconds < 60)
+        .Select(p => p.Key).Take(4).ToArray();
+    public IReadOnlyList<string> DirectPeerAddresses => _peers.Values.SelectMany(p => p.State.Endpoints
+        .Select(e => IPEndPoint.Parse(e).Address.ToString())
+        .Concat(p.Reflexive is null ? [] : new[] { p.Reflexive.Address.ToString() }))
+        .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
     public bool Authorized => Volatile.Read(ref _leaseAt) > 0 &&
         Stopwatch.GetElapsedTime(Volatile.Read(ref _leaseAt)).TotalMilliseconds < Volatile.Read(ref _leaseMs);
     public IReadOnlyList<MeshBinding> Bindings => !Authorized ? [] : _peers.Values.Select(p =>
         new MeshBinding(p.State.Id, p.State.Address, p.State.PublicKey, p.Port,
             !ForceRelay && p.Direct is not null && Stopwatch.GetElapsedTime(Volatile.Read(ref p.LastAck)).TotalSeconds < 8 ? "Trực tiếp" : "Qua relay")).ToArray();
 
-    public MeshTransport(MeshTransportIdentity config, MeshTransportOptions info) { _config = config; _info = info; }
+    public MeshTransport(MeshTransportIdentity config, MeshTransportOptions info,
+        Func<string, CancellationToken, Task<IPAddress[]>>? resolve = null)
+    { _config = config; _info = info; _resolve = resolve ?? ((host, ct) => Dns.GetHostAddressesAsync(host, ct)); }
     public void SetWireGuardPort(int port)
     {
         if (port is < 1 or > 65535) throw new ArgumentOutOfRangeException(nameof(port));
@@ -169,11 +204,15 @@ public sealed class MeshTransport : IAsyncDisposable
                     lock (_localLoops) { _localLoops.RemoveAll(t => t.IsCompleted); _localLoops.Add(ReceiveLocalAsync(peer, ct)); }
                 }
                 _cookie = state.Cookie;
+                _observedEndpoint = state.ObservedEndpoint;
                 Volatile.Write(ref _leaseMs, state.LeaseMs);
                 Volatile.Write(ref _leaseAt, Stopwatch.GetTimestamp());
             }
             else if (Authorized && count > 36 && _peers.TryGetValue(Encoding.ASCII.GetString(buffer, 0, 36), out var peer))
+            {
+                Interlocked.Add(ref peer.RelayBytesReceived, count - 36);
                 await DeliverAsync(peer, buffer.AsMemory(36, count - 36), ct);
+            }
         }
     }
 
@@ -197,35 +236,74 @@ public sealed class MeshTransport : IAsyncDisposable
 
     private async Task MaintainAsync(ClientWebSocket ws, CancellationToken ct)
     {
-        var host = string.IsNullOrEmpty(_info.UdpHost) ? new Uri(_config.ServerUrl).DnsSafeHost : _info.UdpHost;
-        IPAddress[] ips;
-        using var dnsTimeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        dnsTimeout.CancelAfter(TimeSpan.FromSeconds(3));
-        try { ips = await Dns.GetHostAddressesAsync(host, dnsTimeout.Token); }
-        catch (SocketException) { ips = []; }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested) { ips = []; }
-        var server = ips.FirstOrDefault(ip => ip.AddressFamily == AddressFamily.InterNetwork);
-        // UDP is optional: networks without usable IPv4 still retain WSS relay.
-        var endpoint = server is null ? null : new IPEndPoint(server, _info.UdpPort);
+        long resolvedAt = 0;
+        long stunAt = 0;
         while (!ct.IsCancellationRequested)
         {
             if (Volatile.Read(ref _leaseAt) > 0 && !Authorized) throw new IOException("Mesh lease hết hạn.");
+            // A DNS failure at service startup must not disable discovery until
+            // the next WS reconnect. Refresh successful answers too (DDNS/VPN).
+            if (resolvedAt == 0 || Stopwatch.GetElapsedTime(resolvedAt).TotalSeconds >=
+                (Volatile.Read(ref _discoveryEndpoints).Length == 0 ? 5 : 30))
+            {
+                resolvedAt = Stopwatch.GetTimestamp();
+                using var dnsTimeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                dnsTimeout.CancelAfter(TimeSpan.FromSeconds(3));
+                try
+                {
+                    var ips = await _resolve(DiscoveryHost, dnsTimeout.Token);
+                    var endpoints = ips.Where(ip => ip.AddressFamily == AddressFamily.InterNetwork).Distinct()
+                        .Take(8).Select(ip => new IPEndPoint(ip, _info.UdpPort)).ToArray();
+                    Volatile.Write(ref _discoveryEndpoints, endpoints);
+                    _dnsError = endpoints.Length == 0 ? "No IPv4 discovery address" : null;
+                }
+                catch (SocketException ex) { _dnsError = ex.SocketErrorCode.ToString(); }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested) { _dnsError = "DNS timeout"; }
+            }
             var port = ((IPEndPoint)_udp.Client.LocalEndPoint!).Port;
             var lan = NetworkInterface.GetAllNetworkInterfaces().Where(n => n.OperationalStatus == OperationalStatus.Up)
                 .SelectMany(n => n.GetIPProperties().UnicastAddresses).Select(a => a.Address)
                 .Where(ip => ip.AddressFamily == AddressFamily.InterNetwork && IsPrivate(ip) && !WireGuardConfig.ValidAddress(ip.ToString()))
                 .Select(ip => ip.ToString()).Distinct().Take(16).ToArray();
-            await SendWsAsync(JsonSerializer.SerializeToUtf8Bytes(new { type = "ping", lan, port }), WebSocketMessageType.Text, ct);
-            if (_cookie.Length == 64 && endpoint is not null)
-                await SendUdpAsync(Encoding.ASCII.GetBytes("RPM1" + _cookie), endpoint, ct);
+            foreach (var pending in _stunRequests.Where(p => Stopwatch.GetElapsedTime(p.Value.At).TotalSeconds > 10)) _stunRequests.TryRemove(pending.Key, out _);
+            foreach (var known in _publicEndpoints.Where(p => Stopwatch.GetElapsedTime(p.Value).TotalSeconds >= 60)) _publicEndpoints.TryRemove(known.Key, out _);
+            if (Authorized && !string.IsNullOrEmpty(_info.StunHost) &&
+                (stunAt == 0 || Stopwatch.GetElapsedTime(stunAt).TotalSeconds >= 15))
+            {
+                stunAt = Stopwatch.GetTimestamp();
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                timeout.CancelAfter(TimeSpan.FromSeconds(3));
+                try
+                {
+                    var ips = await Dns.GetHostAddressesAsync(_info.StunHost, timeout.Token);
+                    foreach (var ip in ips.Where(ip => ip.AddressFamily == AddressFamily.InterNetwork).Distinct().Take(2))
+                    {
+                        var request = StunProtocol.Request();
+                        var server = new IPEndPoint(ip, _info.StunPort);
+                        _stunRequests[Convert.ToHexString(request.AsSpan(8))] = new(request, server, Stopwatch.GetTimestamp());
+                        await SendUdpAsync(request, server, ct);
+                    }
+                }
+                catch (SocketException) { /* STUN is optional; retain native discovery/relay. */ }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested) { }
+            }
+            await SendWsAsync(JsonSerializer.SerializeToUtf8Bytes(new { type = "ping", lan, port, publicEndpoints = PublicEndpoints }), WebSocketMessageType.Text, ct);
+            if (_cookie.Length == 64)
+                foreach (var endpoint in Volatile.Read(ref _discoveryEndpoints))
+                    if (await SendUdpAsync(Encoding.ASCII.GetBytes("RPM1" + _cookie), endpoint, ct))
+                        Interlocked.Increment(ref _discoverySent);
             if (Authorized && !ForceRelay)
                 foreach (var peer in _peers.Values)
                 {
                     peer.Challenge = RandomNumberGenerator.GetBytes(8); peer.ChallengeAt = Stopwatch.GetTimestamp();
                     peer.ProbeRtt = double.PositiveInfinity;
-                    foreach (var target in peer.State.Endpoints)
+                    var targets = peer.State.Endpoints
+                        .Concat(peer.Reflexive is null ? [] : new[] { peer.Reflexive.ToString() })
+                        .Concat(peer.Direct is null ? [] : new[] { peer.Direct.ToString() }).Distinct();
+                    foreach (var target in targets)
                     {
                         var probe = EncodeDirect(_config.DeviceId, 1, peer.Challenge, [], peer.State.Token);
+                        Interlocked.Increment(ref peer.ProbesSent);
                         await SendUdpAsync(probe, IPEndPoint.Parse(target), ct);
                     }
                 }
@@ -251,13 +329,15 @@ public sealed class MeshTransport : IAsyncDisposable
                 if (expectedPort == 0 && peer.WireGuard is not null && !peer.WireGuard.Equals(packet.RemoteEndPoint)) continue;
                 peer.WireGuard = packet.RemoteEndPoint;
                 var direct = peer.Direct;
-                if (!ForceRelay && direct is not null && Stopwatch.GetElapsedTime(Volatile.Read(ref peer.LastAck)).TotalSeconds < 8)
-                    await SendUdpAsync(EncodeDirect(_config.DeviceId, 3, new byte[8], packet.Buffer, peer.State.Token), direct, ct);
+                if (!ForceRelay && direct is not null && Stopwatch.GetElapsedTime(Volatile.Read(ref peer.LastAck)).TotalSeconds < 8 &&
+                    await SendUdpAsync(EncodeDirect(_config.DeviceId, 3, new byte[8], packet.Buffer, peer.State.Token), direct, ct))
+                    Interlocked.Add(ref peer.DirectBytesSent, packet.Buffer.Length);
                 else
                 {
                     var frame = new byte[36 + packet.Buffer.Length];
                     Encoding.ASCII.GetBytes(peer.State.Id, frame); packet.Buffer.CopyTo(frame, 36);
                     await SendWsAsync(frame, WebSocketMessageType.Binary, ct);
+                    Interlocked.Add(ref peer.RelayBytesSent, packet.Buffer.Length);
                 }
             }
         }
@@ -270,15 +350,41 @@ public sealed class MeshTransport : IAsyncDisposable
             UdpReceiveResult packet;
             try { packet = await _udp.ReceiveAsync(ct); }
             catch (SocketException) { continue; }
+            if (Authorized && packet.Buffer.Length >= 20 && packet.Buffer[0] == 1 && packet.Buffer[1] == 1 &&
+                _stunRequests.TryGetValue(Convert.ToHexString(packet.Buffer.AsSpan(8, 12)), out var pending) &&
+                pending.Server.Equals(packet.RemoteEndPoint) && Stopwatch.GetElapsedTime(pending.At).TotalSeconds < 10 &&
+                StunProtocol.Response(packet.Buffer, pending.Request) is { } mapped && !IsPrivate(mapped.Address) && ValidEndpoint(mapped.ToString()))
+            {
+                _stunRequests.TryRemove(Convert.ToHexString(packet.Buffer.AsSpan(8, 12)), out _);
+                _publicEndpoints[mapped.ToString()] = Stopwatch.GetTimestamp();
+                continue;
+            }
             if (!Authorized || ForceRelay || packet.Buffer.Length < 77) continue;
             var id = Encoding.ASCII.GetString(packet.Buffer, 0, 36);
-            if (!_peers.TryGetValue(id, out var peer) || !VerifyDirect(packet.Buffer, peer.State.Token)) continue;
+            if (!_peers.TryGetValue(id, out var peer) || !VerifyDirect(packet.Buffer, peer.State.Token))
+            { Interlocked.Increment(ref _authenticationRejected); continue; }
             var kind = packet.Buffer[36];
             if (kind == 1 && packet.Buffer.Length == 77)
+            {
+                Interlocked.Increment(ref peer.ProbesReceived);
                 await SendUdpAsync(EncodeDirect(_config.DeviceId, 2, packet.Buffer.AsSpan(37, 8).ToArray(), [], peer.State.Token), packet.RemoteEndPoint, ct);
+                // The mapping to us can differ from the mapping to discovery.
+                // Verify the newly observed source by challenging it too. Limit
+                // reciprocal probes so two peers cannot form a probe storm.
+                var probeReflexive = peer.Reflexive is null || !peer.Reflexive.Equals(packet.RemoteEndPoint) ||
+                    Stopwatch.GetElapsedTime(peer.ReflexiveProbeAt).TotalSeconds >= 2;
+                peer.Reflexive = packet.RemoteEndPoint;
+                if (probeReflexive && peer.Challenge is { } currentChallenge && Stopwatch.GetElapsedTime(peer.ChallengeAt).TotalSeconds < 5)
+                {
+                    peer.ReflexiveProbeAt = Stopwatch.GetTimestamp();
+                    Interlocked.Increment(ref peer.ProbesSent);
+                    await SendUdpAsync(EncodeDirect(_config.DeviceId, 1, currentChallenge, [], peer.State.Token), packet.RemoteEndPoint, ct);
+                }
+            }
             else if (kind == 2 && packet.Buffer.Length == 77 && peer.Challenge is { } challenge &&
                 Stopwatch.GetElapsedTime(peer.ChallengeAt).TotalSeconds < 5 && packet.Buffer.AsSpan(37, 8).SequenceEqual(challenge))
             {
+                Interlocked.Increment(ref peer.AcksReceived);
                 var rtt = Stopwatch.GetElapsedTime(peer.ChallengeAt).TotalMilliseconds;
                 if (rtt < peer.ProbeRtt)
                 {
@@ -292,13 +398,16 @@ public sealed class MeshTransport : IAsyncDisposable
             // MAC and WireGuard authenticate it independently. Outgoing path
             // selection still requires a response to our fresh challenge.
             else if (kind == 3)
+            {
+                Interlocked.Add(ref peer.DirectBytesReceived, packet.Buffer.Length - 77);
                 await DeliverAsync(peer, packet.Buffer.AsMemory(45, packet.Buffer.Length - 77), ct);
+            }
         }
     }
-    private async Task SendUdpAsync(byte[] frame, IPEndPoint endpoint, CancellationToken ct)
+    private async Task<bool> SendUdpAsync(byte[] frame, IPEndPoint endpoint, CancellationToken ct)
     {
-        try { await _udp.SendAsync(frame, endpoint, ct); }
-        catch (SocketException) { /* UDP blocked/unreachable: WSS remains usable. */ }
+        try { await _udp.SendAsync(frame, endpoint, ct); return true; }
+        catch (SocketException ex) { _udpError = ex.SocketErrorCode.ToString(); return false; }
     }
     private async Task DeliverAsync(Peer peer, ReadOnlyMemory<byte> payload, CancellationToken ct)
     {

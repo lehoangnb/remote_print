@@ -207,8 +207,10 @@ public sealed class ClientEngine : IDisposable, INativeRelayHost
             }
             if (info.Mode == "mesh-v1")
             {
-                if (!WireGuardConfig.ValidAddress(info.Address) || info.UdpPort is < 1 or > 65535)
+                if (!WireGuardConfig.ValidAddress(info.Address) || info.UdpPort is < 1 or > 65535 || info.StunPort is < 1 or > 65535 ||
+                    info.StunHost.Length > 253 || info.StunHost.Any(c => !char.IsAsciiLetterOrDigit(c) && c is not ('.' or '-')))
                     throw new InvalidDataException("Mesh configuration không hợp lệ.");
+                if (_mesh is not null && !_mesh.Matches(info)) await StopMeshAsync();
                 if (_mesh is null)
                 {
                     _tunnelFirewall.Remove();
@@ -406,6 +408,7 @@ public sealed class ClientEngine : IDisposable, INativeRelayHost
             TestFileMaintenance = true,
             Settings = new(_config.ComputerName, _config.ServerUrl, _config.SharedPrinters.ToList()),
             State = _state, Connection = _connection, TunnelStatus = _tunnelStatus, Peers = _peers.ToList(), Printers = _printers.ToList(),
+            MeshDiagnostics = _mesh is null ? null : JsonSerializer.SerializeToElement(_mesh.Diagnostics, ServiceProtocol.Json),
             Activity = ReadActivity(), UpdatedAt = DateTime.UtcNow
         };
         Volatile.Write(ref _snapshot, snapshot);

@@ -1,10 +1,12 @@
 using System.Diagnostics;
+using System.Buffers.Binary;
 using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Net.WebSockets;
 using System.Security.Cryptography;
 using System.Text.Json;
 using RemotePrint.Client;
@@ -26,6 +28,14 @@ internal static partial class Program
         Require(MeshTransport.VerifyDirect(frame, token), "Direct probes authenticate with per-session pair token");
         frame[40] ^= 1;
         Require(!MeshTransport.VerifyDirect(frame, token), "Tampered direct probe is rejected");
+        var stunRequest = StunProtocol.Request();
+        var stunResponse = StunTestResponse(stunRequest, new(IPAddress.Parse("203.0.113.55"), 45678));
+        Require(StunProtocol.Response(stunResponse, stunRequest)?.ToString() == "203.0.113.55:45678",
+            "STUN decodes the XOR-mapped IPv4 endpoint");
+        stunResponse[8] ^= 1;
+        Require(StunProtocol.Response(stunResponse, stunRequest) is null &&
+            StunProtocol.Response(stunResponse.AsSpan(0, 25), stunRequest) is null,
+            "STUN rejects another transaction and truncated responses");
         var state = new MeshState { Type = "state", Address = "10.247.0.2", Cookie = token, LeaseMs = 15000,
             Peers = [new() { Id = peerId, Address = "10.247.0.3", PublicKey = key, Token = token, Endpoints = ["192.168.1.5:32000"] }] };
         MeshTransport.ValidateState(state, Guid.NewGuid().ToString(), state.Address);
@@ -86,7 +96,15 @@ internal static partial class Program
             var a = await Enroll("one"); var b = await Enroll("one"); var c = await Enroll("two");
             MeshTransport MakeTransport((ClientConfig Config, TunnelInfo Info) x) => new(
                 new(x.Config.ServerUrl, x.Config.DeviceId, x.Config.DeviceSecret), new(x.Info.Address, x.Info.UdpHost, x.Info.UdpPort));
-            await using var ta = MakeTransport(a); ta.ForceRelay = true;
+            var dnsAttempts = 0;
+            await using var stun = new MeshStunFixture();
+            await using var ta = new MeshTransport(new(a.Config.ServerUrl, a.Config.DeviceId, a.Config.DeviceSecret),
+                new(a.Info.Address, a.Info.UdpHost, a.Info.UdpPort, privateIp.ToString(), stun.Port), (_, _) =>
+                {
+                    if (Interlocked.Increment(ref dnsAttempts) == 1) throw new SocketException((int)SocketError.HostNotFound);
+                    return Task.FromResult(new[] { IPAddress.Parse("192.0.2.1"), privateIp });
+                });
+            ta.ForceRelay = true;
             await using var tb = MakeTransport(b); tb.ForceRelay = true;
             await using var tc = MakeTransport(c);
             ta.Start(); tb.Start(); tc.Start();
@@ -112,12 +130,66 @@ internal static partial class Program
                 while (wb.Available > 0) await wb.ReceiveAsync(timeout.Token);
             }
             await Exchange("C# clients relay opaque WireGuard packets intact through the Node server");
+            await WaitMeshAsync(() => Task.FromResult(ta.Diagnostics.ObservedEndpoint is not null));
+            Require(dnsAttempts >= 2 && ta.Diagnostics.DiscoveryEndpoints.Length == 2 && ta.Diagnostics.DnsError is null,
+                "Discovery retries a startup DNS failure and reaches the server when the first A record is unusable");
+            await WaitMeshAsync(() => Task.FromResult(ta.Diagnostics.PublicEndpoints.Contains("203.0.113.55:45678") &&
+                tb.Diagnostics.Peers.Single(p => p.Id == a.Config.DeviceId).Candidates.Contains("203.0.113.55:45678")));
+            Require(true, "STUN uses the mesh UDP socket and advertises its public endpoint through authenticated control");
             ta.ForceRelay = tb.ForceRelay = false;
             await WaitMeshAsync(() => Task.FromResult(ta.Bindings.SingleOrDefault()?.Path == "Trực tiếp" && tb.Bindings.SingleOrDefault()?.Path == "Trực tiếp"));
             await Exchange("Authenticated UDP path moves packets directly between C# clients");
+            Require(ta.Diagnostics.Peers.Single().AcksReceived > 0 && ta.Diagnostics.Peers.Single().ProbesSent > 0,
+                "Diagnostics distinguish authenticated direct ACKs from discovery and relay traffic");
+            Require(ta.Diagnostics.Peers.Single().DirectBytesSent > 0 && tb.Diagnostics.Peers.Single().DirectBytesReceived > 0 &&
+                ta.Diagnostics.Peers.Single().RelayBytesSent > 0,
+                "WireGuard data counters distinguish bytes delivered directly from earlier relayed bytes");
             tb.ForceRelay = true;
             await WaitMeshAsync(() => Task.FromResult(ta.Bindings.SingleOrDefault()?.Path == "Qua relay"));
             await Exchange("Loss of direct UDP falls back to WSS without replacing peer bindings");
+            // Model a NAT mapping which is absent from discovery. The bridge
+            // must challenge the authenticated incoming source, then keep that
+            // learned endpoint alive after the original 8-second path lease.
+            var reflexive = await Enroll("one");
+            using (var control = new ClientWebSocket())
+            using (var endpoint = new UdpClient(new IPEndPoint(privateIp, 0)))
+            using (var stop = new CancellationTokenSource())
+            {
+                control.Options.SetRequestHeader("x-device-id", reflexive.Config.DeviceId);
+                control.Options.SetRequestHeader("x-device-secret", reflexive.Config.DeviceSecret);
+                await control.ConnectAsync(new Uri(url.Replace("http:", "ws:") + "/api/client/mesh"), CancellationToken.None);
+                var buffer = new byte[256 * 1024];
+                var welcome = await control.ReceiveAsync(buffer.AsMemory(), CancellationToken.None);
+                var welcomeState = JsonSerializer.Deserialize<MeshState>(buffer.AsSpan(0, welcome.Count), ServiceProtocol.Json)!;
+                var pairToken = welcomeState.Peers.Single(p => p.Id == a.Config.DeviceId).Token;
+                await WaitMeshAsync(() => Task.FromResult(ta.Bindings.Any(p => p.Id == reflexive.Config.DeviceId)));
+                var target = new IPEndPoint(privateIp, ta.LocalUdpPort);
+                var reply = Task.Run(async () =>
+                {
+                    try
+                    {
+                        while (!stop.IsCancellationRequested)
+                        {
+                            var packet = await endpoint.ReceiveAsync(stop.Token);
+                            if (MeshTransport.VerifyDirect(packet.Buffer, pairToken) && packet.Buffer[36] == 1)
+                                await endpoint.SendAsync(MeshTransport.EncodeDirect(reflexive.Config.DeviceId, 2,
+                                    packet.Buffer.AsSpan(37, 8).ToArray(), [], pairToken), packet.RemoteEndPoint, stop.Token);
+                        }
+                    }
+                    catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
+                });
+                try
+                {
+                    await endpoint.SendAsync(MeshTransport.EncodeDirect(reflexive.Config.DeviceId, 1,
+                        RandomNumberGenerator.GetBytes(8), [], pairToken), target);
+                    await WaitMeshAsync(() => Task.FromResult(ta.Bindings.FirstOrDefault(p => p.Id == reflexive.Config.DeviceId)?.Path == "Trực tiếp"));
+                    await Task.Delay(9000);
+                    Require(ta.Bindings.First(p => p.Id == reflexive.Config.DeviceId).Path == "Trực tiếp",
+                        "Authenticated peer-reflexive NAT endpoint is challenged and stays direct beyond eight seconds");
+                }
+                finally { stop.Cancel(); await reply; control.Abort(); }
+            }
+            await WaitMeshAsync(() => Task.FromResult(ta.Bindings.Count == 1));
             using var moved = await http.PostAsJsonAsync($"/api/admin/clients/{b.Config.DeviceId}/approve", new { room = "two" });
             moved.EnsureSuccessStatusCode();
             await WaitMeshAsync(() => Task.FromResult(ta.Bindings.Count == 0));
@@ -143,5 +215,44 @@ internal static partial class Program
             await Task.Delay(100);
         }
         throw new TimeoutException("Mesh state did not converge within 20 seconds.");
+    }
+
+    private static byte[] StunTestResponse(byte[] request, IPEndPoint mapped)
+    {
+        var response = new byte[32];
+        BinaryPrimitives.WriteUInt16BigEndian(response, 0x101);
+        BinaryPrimitives.WriteUInt16BigEndian(response.AsSpan(2), 12);
+        request.AsSpan(4, 16).CopyTo(response.AsSpan(4));
+        BinaryPrimitives.WriteUInt16BigEndian(response.AsSpan(20), 0x20);
+        BinaryPrimitives.WriteUInt16BigEndian(response.AsSpan(22), 8);
+        response[25] = 1;
+        BinaryPrimitives.WriteUInt16BigEndian(response.AsSpan(26), (ushort)(mapped.Port ^ 0x2112));
+        var ip = mapped.Address.GetAddressBytes();
+        for (var i = 0; i < 4; i++) response[i + 28] = (byte)(ip[i] ^ request[i + 4]);
+        return response;
+    }
+
+    private sealed class MeshStunFixture : IAsyncDisposable
+    {
+        private readonly UdpClient _socket = new(new IPEndPoint(IPAddress.Any, 0));
+        private readonly CancellationTokenSource _stop = new();
+        private readonly Task _loop;
+        public int Port => ((IPEndPoint)_socket.Client.LocalEndPoint!).Port;
+        public MeshStunFixture() => _loop = RunAsync();
+        private async Task RunAsync()
+        {
+            try
+            {
+                while (!_stop.IsCancellationRequested)
+                {
+                    var packet = await _socket.ReceiveAsync(_stop.Token);
+                    if (packet.Buffer.Length != 20) continue;
+                    await _socket.SendAsync(StunTestResponse(packet.Buffer, new(IPAddress.Parse("203.0.113.55"), 45678)),
+                        packet.RemoteEndPoint, _stop.Token);
+                }
+            }
+            catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
+        }
+        public async ValueTask DisposeAsync() { _stop.Cancel(); await _loop; _socket.Dispose(); _stop.Dispose(); }
     }
 }

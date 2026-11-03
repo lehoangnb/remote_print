@@ -9,9 +9,17 @@ import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import { WebSocket } from 'ws';
 import { Store } from '../src/store.js';
-import { attachMeshTransport } from '../src/mesh-transport.js';
+import { attachMeshTransport, discoveryCandidates } from '../src/mesh-transport.js';
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+test('hairpin discovery supplies an authenticated-probe candidate without exceeding old-client limits', () => {
+  assert.deepEqual(discoveryCandidates('192.168.0.1:55821', ['192.168.0.155:55821'], ['198.51.100.8']),
+    ['192.168.0.1:55821', '198.51.100.8:55821', '192.168.0.155:55821']);
+  assert.deepEqual(discoveryCandidates('203.0.113.7:49194', [], ['198.51.100.8']), ['203.0.113.7:49194']);
+  assert.deepEqual(discoveryCandidates(null, ['192.168.0.155:55821'], ['198.51.100.8']), ['192.168.0.155:55821']);
+  assert.equal(discoveryCandidates('192.168.0.1:55821', Array.from({ length: 16 }, (_, i) => `10.0.0.${i + 1}:55821`),
+    ['198.51.100.8', '198.51.100.9']).length, 17);
+});
 async function until(predicate, message) {
   for (let i = 0; i < 80; i++) { if (predicate()) return; await wait(50); }
   assert.fail(message);
@@ -39,7 +47,7 @@ test('mesh relay authorizes each packet, keeps ciphertext opaque, discovers UDP 
     ws.on('error', () => {});
     await once(ws, 'open');
     result.timer = setInterval(() => { if (result.heartbeat && ws.readyState === WebSocket.OPEN)
-      ws.send(JSON.stringify({ type: 'ping', port: 32000, lan: [] })); }, 200);
+      ws.send(JSON.stringify({ type: 'ping', port: 32000, lan: [], publicEndpoints: result.publicEndpoints ?? [] })); }, 200);
     ws.on('close', () => clearInterval(result.timer));
     await until(() => result.state, 'No mesh welcome');
     return result;
@@ -65,6 +73,18 @@ test('mesh relay authorizes each packet, keeps ciphertext opaque, discovers UDP 
     udp.send(Buffer.from('RPM1' + a.state.cookie), relay.udp.address().port, '127.0.0.1');
     await until(() => b.state.peers[0]?.endpoints.length, 'UDP endpoint not discovered');
     assert.match(b.state.peers[0].endpoints[0], /^127\.0\.0\.1:\d+$/);
+    const diagnostics = relay.status();
+    assert.equal(diagnostics.udpAccepted, 1);
+    assert.equal(diagnostics.udpReceived, 1);
+    assert.match(diagnostics.clients.find(x => x.id === a.id).observedEndpoint, /^127\.0\.0\.1:\d+$/);
+    assert.equal(JSON.stringify(diagnostics).includes(a.state.cookie), false);
+    assert.equal(JSON.stringify(diagnostics).includes(a.state.peers[0].token), false);
+    a.publicEndpoints = ['198.51.100.12:45678'];
+    await until(() => b.state.peers[0]?.endpoints.includes('198.51.100.12:45678'), 'STUN endpoint was not advertised');
+    assert.deepEqual(relay.status().clients.find(x => x.id === a.id).publicEndpoints, a.publicEndpoints);
+    const invalidCandidate = await client('two', 9);
+    invalidCandidate.publicEndpoints = ['127.0.0.1:445'];
+    await until(() => invalidCandidate.ws.readyState === WebSocket.CLOSED, 'Loopback public candidate was accepted');
     // Authorization is checked against current state, before the 2 s push tick.
     store.approveClient(b.id, 'two');
     a.ws.send(Buffer.concat([Buffer.from(b.id), opaque]));

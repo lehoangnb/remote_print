@@ -29,6 +29,7 @@ public sealed class ServiceSnapshot
     public ClientState State { get; set; } = new();
     public string Connection { get; set; } = "Chưa cấu hình";
     public string TunnelStatus { get; set; } = "Chưa cấu hình";
+    public JsonElement? MeshDiagnostics { get; set; }
     public List<PeerClient> Peers { get; set; } = [];
     public List<string> Printers { get; set; } = [];
     public List<ActivityEntry> Activity { get; set; } = [];
